@@ -56,6 +56,37 @@ class LLMReranker:
         return sorted(candidates, key=lambda c: c.best_score, reverse=True)[:top_k]
 
 
+class HybridReranker:
+    def __init__(self, llm_weight: float = 0.6, rrf_weight: float = 0.4):
+        self.llm_weight = llm_weight
+        self.rrf_weight = rrf_weight
+        self._llm = LLMReranker()
+
+    async def rerank(
+        self,
+        query: str,
+        chunks: list[RetrievedChunk],
+        *,
+        top_k: int,
+        ctx: RunContext | None = None,
+    ) -> list[RetrievedChunk]:
+        candidates = chunks[:MAX_CANDIDATES]
+        llm_reranked = await self._llm.rerank(query, candidates, top_k=len(candidates), ctx=ctx)
+        llm_scores = {}
+        for chunk in llm_reranked:
+            if chunk.rerank_score is not None:
+                llm_scores[chunk.chunk_id] = chunk.rerank_score
+
+        max_rrf = max((c.fused_score for c in candidates), default=1.0) or 1.0
+        for chunk in candidates:
+            llm_s = llm_scores.get(chunk.chunk_id, 0.0)
+            rrf_s = chunk.fused_score / max_rrf if max_rrf else 0.0
+            chunk.rerank_score = round(
+                self.llm_weight * llm_s + self.rrf_weight * rrf_s * 10, 3
+            )
+        return sorted(candidates, key=lambda c: c.best_score, reverse=True)[:top_k]
+
+
 class NoopReranker:
     async def rerank(
         self,

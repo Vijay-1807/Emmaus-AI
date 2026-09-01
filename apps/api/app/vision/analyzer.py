@@ -18,7 +18,9 @@ Respond ONLY with JSON:
   "extracted_text": "<all visible text, or empty string>",
   "is_handwritten": <true|false>,
   "key_observations": ["<observation 1>", "<observation 2>", "..."],
-  "confidence": <0.0-1.0>
+  "confidence": <0.0-1.0>,
+  "content_type": "text|chart|diagram|photo|handwriting|screenshot|mixed",
+  "regions": [{"type": "text|chart|table|image|heading", "description": "<short>", "confidence": <0.0-1.0>}]
 }"""
 
 
@@ -70,15 +72,28 @@ async def analyze_image(
             "is_handwritten": bool(data.get("is_handwritten", False)),
             "key_observations": [str(o) for o in data.get("key_observations", [])][:10],
             "confidence": float(data.get("confidence", 0.8)),
+            "content_type": str(data.get("content_type", "text")),
+            "regions": [
+                {
+                    "type": str(r.get("type", "text")),
+                    "description": str(r.get("description", "")),
+                    "confidence": float(r.get("confidence", 0.5)),
+                }
+                for r in (data.get("regions") or [])[:10]
+            ],
         }
     except Exception as exc:
         logger.error("vision analysis failed: %s", exc)
         return {"description": "", "extracted_text": "", "is_handwritten": False,
-                "key_observations": [], "confidence": 0.0, "error": str(exc)[:200]}
+                "key_observations": [], "confidence": 0.0, "content_type": "text",
+                "regions": [], "error": str(exc)[:200]}
 
 
 def format_analysis_for_indexing(filename: str, analysis: dict[str, Any]) -> str:
     lines = [f"Image: {filename}"]
+    content_type = analysis.get("content_type", "text")
+    if content_type:
+        lines.append(f"Content type: {content_type}")
     if analysis.get("description"):
         lines.append(f"Description: {analysis['description']}")
     if analysis.get("is_handwritten"):
@@ -88,4 +103,9 @@ def format_analysis_for_indexing(filename: str, analysis: dict[str, Any]) -> str
     if analysis.get("key_observations"):
         lines.append("Key observations:")
         lines.extend(f"- {o}" for o in analysis["key_observations"])
+    regions = analysis.get("regions", [])
+    if regions:
+        lines.append("Detected regions:")
+        for r in regions:
+            lines.append(f"  - [{r.get('type', '?')}] {r.get('description', '')}")
     return "\n".join(lines)

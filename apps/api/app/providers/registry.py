@@ -20,10 +20,13 @@ from app.providers.ollama import OllamaProvider
 logger = logging.getLogger("vedax.router")
 
 COST_PER_MTOK: dict[tuple[str, str], tuple[float, float]] = {
-    ("groq", "llama-3.3-70b-versatile"): (0.59, 0.79),
+    ("cerebras", "gpt-oss-120b"): (0.15, 0.60),
+    ("cerebras", "gemma-4-31b"): (0.15, 0.60),
+    ("groq", "openai/gpt-oss-120b"): (0.15, 0.60),
     ("groq", "llama-3.1-8b-instant"): (0.05, 0.08),
-    ("cerebras", "llama-3.3-70b"): (0.85, 1.20),
-    ("ollama", "gpt-oss:120b"): (0.5, 1.5),
+    ("groq", "llama-3.3-70b-versatile"): (0.59, 0.79),
+    ("ollama", "gpt-oss:120b"): (0.0, 0.0),
+    ("ollama", "gemma4:31b"): (0.0, 0.0),
 }
 
 
@@ -42,30 +45,36 @@ class ModelRouter:
     def _chain(self, task: TaskType) -> list[tuple[LLMProvider, str]]:
         s = self.settings
         chain: list[tuple[LLMProvider, str]] = []
+
         if task == TaskType.VISION:
+            if "cerebras" in self.providers:
+                chain.append((self.providers["cerebras"], s.cerebras_vision_model))
             if "ollama" in self.providers:
                 chain.append((self.providers["ollama"], s.ollama_vision_model))
             chain.append((self.providers["mock"], "mock-vision"))
             return chain
+
         if task in (TaskType.CLASSIFY, TaskType.REWRITE, TaskType.RERANK, TaskType.VERIFY,
                     TaskType.EXTRACTION, TaskType.EVALUATION):
-            if "groq" in self.providers:
-                chain.append((self.providers["groq"], s.groq_fast_model))
-            if "ollama" in self.providers:
-                chain.append((self.providers["ollama"], s.ollama_chat_model))
             if "cerebras" in self.providers:
                 chain.append((self.providers["cerebras"], s.cerebras_chat_model))
-            chain.append((self.providers["mock"], "mock-fast"))
-            return chain
-        if task == TaskType.REASONING:
-            if "ollama" in self.providers:
-                chain.append((self.providers["ollama"], s.ollama_chat_model))
             if "groq" in self.providers:
                 chain.append((self.providers["groq"], s.groq_chat_model))
+            if "ollama" in self.providers:
+                chain.append((self.providers["ollama"], s.ollama_chat_model))
+            chain.append((self.providers["mock"], "mock-fast"))
+            return chain
+
+        if task == TaskType.REASONING:
             if "cerebras" in self.providers:
                 chain.append((self.providers["cerebras"], s.cerebras_chat_model))
+            if "groq" in self.providers:
+                chain.append((self.providers["groq"], s.groq_chat_model))
+            if "ollama" in self.providers:
+                chain.append((self.providers["ollama"], s.ollama_chat_model))
             chain.append((self.providers["mock"], "mock-reasoning"))
             return chain
+
         chain.append((self.providers["mock"], "mock-default"))
         return chain
 
@@ -215,12 +224,12 @@ def get_model_router() -> ModelRouter:
     if _router is None:
         settings = get_settings()
         providers: dict[str, LLMProvider] = {}
-        if settings.has_ollama:
-            providers["ollama"] = OllamaProvider(
-                settings.ollama_api_key,
-                settings.ollama_base_url,
-                settings.ollama_chat_model,
-                settings.ollama_vision_model,
+        if settings.has_cerebras:
+            providers["cerebras"] = CerebrasProvider(
+                settings.cerebras_api_key,
+                settings.cerebras_base_url,
+                settings.cerebras_chat_model,
+                settings.cerebras_vision_model,
             )
         if settings.has_groq:
             providers["groq"] = GroqProvider(
@@ -229,11 +238,12 @@ def get_model_router() -> ModelRouter:
                 settings.groq_chat_model,
                 settings.groq_fast_model,
             )
-        if settings.has_cerebras:
-            providers["cerebras"] = CerebrasProvider(
-                settings.cerebras_api_key,
-                settings.cerebras_base_url,
-                settings.cerebras_chat_model,
+        if settings.has_ollama:
+            providers["ollama"] = OllamaProvider(
+                settings.ollama_api_key,
+                settings.ollama_base_url,
+                settings.ollama_chat_model,
+                settings.ollama_vision_model,
             )
         providers["mock"] = MockProvider()
         _router = ModelRouter(providers, settings)

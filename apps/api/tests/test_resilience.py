@@ -82,16 +82,15 @@ class RecoveringProvider:
 class TestProviderFallback:
     def test_fallback_to_mock_on_all_failures(self):
         settings = MagicMock()
-        settings.ollama_vision_model = "gemma4:31b"
-        settings.groq_fast_model = "llama-3.1-8b-instant"
+        settings.cerebras_chat_model = "gpt-oss-120b"
+        settings.cerebras_vision_model = "gemma-4-31b"
+        settings.groq_chat_model = "openai/gpt-oss-120b"
         settings.ollama_chat_model = "gpt-oss:120b"
-        settings.groq_chat_model = "llama-3.3-70b-versatile"
-        settings.cerebras_chat_model = "llama-3.3-70b"
 
         providers = {
-            "ollama": FailingProvider(),
-            "groq": FailingProvider(),
             "cerebras": FailingProvider(),
+            "groq": FailingProvider(),
+            "ollama": FailingProvider(),
             "mock": MockProvider(),
         }
         router = ModelRouter(providers, settings)
@@ -101,48 +100,47 @@ class TestProviderFallback:
 
     def test_reasoning_chain_order(self):
         settings = MagicMock()
+        settings.cerebras_chat_model = "gpt-oss-120b"
+        settings.groq_chat_model = "openai/gpt-oss-120b"
         settings.ollama_chat_model = "gpt-oss:120b"
-        settings.groq_chat_model = "llama-3.3-70b-versatile"
-        settings.cerebras_chat_model = "llama-3.3-70b"
 
         providers = {
-            "ollama": MockProvider(),
-            "groq": MockProvider(),
             "cerebras": MockProvider(),
+            "groq": MockProvider(),
+            "ollama": MockProvider(),
             "mock": MockProvider(),
         }
         router = ModelRouter(providers, settings)
         chain = router._chain(TaskType.REASONING)
         names = [p.name for p, _ in chain]
-        assert names == ["ollama", "groq", "cerebras", "mock"]
+        assert names == ["cerebras", "groq", "ollama", "mock"]
 
-    def test_vision_chain_uses_ollama(self):
+    def test_vision_chain_uses_cerebras(self):
         settings = MagicMock()
-        settings.ollama_vision_model = "gemma4:31b"
+        settings.cerebras_vision_model = "gemma-4-31b"
 
         providers = {
-            "ollama": MockProvider(),
+            "cerebras": MockProvider(),
             "mock": MockProvider(),
         }
         router = ModelRouter(providers, settings)
         chain = router._chain(TaskType.VISION)
-        assert chain[0][0].name == "ollama"
-        assert chain[0][1] == "gemma4:31b"
+        assert chain[0][0].name == "cerebras"
+        assert chain[0][1] == "gemma-4-31b"
 
 
 @pytest.mark.asyncio
 async def test_router_complete_with_all_failing_providers():
     settings = MagicMock()
-    settings.ollama_vision_model = "gemma4:31b"
-    settings.groq_fast_model = "llama-3.1-8b-instant"
+    settings.cerebras_chat_model = "gpt-oss-120b"
+    settings.cerebras_vision_model = "gemma-4-31b"
+    settings.groq_chat_model = "openai/gpt-oss-120b"
     settings.ollama_chat_model = "gpt-oss:120b"
-    settings.groq_chat_model = "llama-3.3-70b-versatile"
-    settings.cerebras_chat_model = "llama-3.3-70b"
 
     providers = {
-        "ollama": FailingProvider(),
-        "groq": FailingProvider(),
         "cerebras": FailingProvider(),
+        "groq": FailingProvider(),
+        "ollama": FailingProvider(),
         "mock": MockProvider(),
     }
     router = ModelRouter(providers, settings)
@@ -156,16 +154,15 @@ async def test_router_complete_with_all_failing_providers():
 @pytest.mark.asyncio
 async def test_router_stream_fallback():
     settings = MagicMock()
-    settings.ollama_vision_model = "gemma4:31b"
-    settings.groq_fast_model = "llama-3.1-8b-instant"
+    settings.cerebras_chat_model = "gpt-oss-120b"
+    settings.cerebras_vision_model = "gemma-4-31b"
+    settings.groq_chat_model = "openai/gpt-oss-120b"
     settings.ollama_chat_model = "gpt-oss:120b"
-    settings.groq_chat_model = "llama-3.3-70b-versatile"
-    settings.cerebras_chat_model = "llama-3.3-70b"
 
     providers = {
-        "ollama": FailingProvider(),
-        "groq": FailingProvider(),
         "cerebras": FailingProvider(),
+        "groq": FailingProvider(),
+        "ollama": FailingProvider(),
         "mock": MockProvider(),
     }
     router = ModelRouter(providers, settings)
@@ -178,16 +175,14 @@ async def test_router_stream_fallback():
 @pytest.mark.asyncio
 async def test_router_all_providers_fail_raises():
     settings = MagicMock()
-    settings.ollama_vision_model = "gemma4:31b"
-    settings.groq_fast_model = "llama-3.1-8b-instant"
+    settings.cerebras_chat_model = "gpt-oss-120b"
+    settings.groq_chat_model = "openai/gpt-oss-120b"
     settings.ollama_chat_model = "gpt-oss:120b"
-    settings.groq_chat_model = "llama-3.3-70b-versatile"
-    settings.cerebras_chat_model = "llama-3.3-70b"
 
     providers = {
-        "ollama": FailingProvider(),
-        "groq": FailingProvider(),
         "cerebras": FailingProvider(),
+        "groq": FailingProvider(),
+        "ollama": FailingProvider(),
     }
     router = ModelRouter(providers, settings)
     with pytest.raises(RuntimeError, match="all providers failed"):
@@ -199,16 +194,14 @@ async def test_router_all_providers_fail_raises():
 @pytest.mark.asyncio
 async def test_router_stream_all_fail_raises():
     settings = MagicMock()
-    settings.ollama_vision_model = "gemma4:31b"
-    settings.groq_fast_model = "llama-3.1-8b-instant"
+    settings.cerebras_chat_model = "gpt-oss-120b"
+    settings.groq_chat_model = "openai/gpt-oss-120b"
     settings.ollama_chat_model = "gpt-oss:120b"
-    settings.groq_chat_model = "llama-3.3-70b-versatile"
-    settings.cerebras_chat_model = "llama-3.3-70b"
 
     providers = {
-        "ollama": FailingProvider(),
-        "groq": FailingProvider(),
         "cerebras": FailingProvider(),
+        "groq": FailingProvider(),
+        "ollama": FailingProvider(),
     }
     router = ModelRouter(providers, settings)
     with pytest.raises(RuntimeError, match="all stream providers failed"):
@@ -508,14 +501,12 @@ class TestConcurrentFailures:
     @pytest.mark.asyncio
     async def test_parallel_requests_with_failing_provider(self):
         settings = MagicMock()
-        settings.ollama_vision_model = "gemma4:31b"
-        settings.groq_fast_model = "llama-3.1-8b-instant"
+        settings.cerebras_chat_model = "gpt-oss-120b"
+        settings.groq_chat_model = "openai/gpt-oss-120b"
         settings.ollama_chat_model = "gpt-oss:120b"
-        settings.groq_chat_model = "llama-3.3-70b-versatile"
-        settings.cerebras_chat_model = "llama-3.3-70b"
 
         providers = {
-            "ollama": FailingProvider(),
+            "cerebras": FailingProvider(),
             "groq": FailingProvider(),
             "mock": MockProvider(),
         }
@@ -532,16 +523,14 @@ class TestConcurrentFailures:
     @pytest.mark.asyncio
     async def test_sequential_retry_exhaustion(self):
         settings = MagicMock()
-        settings.ollama_vision_model = "gemma4:31b"
-        settings.groq_fast_model = "llama-3.1-8b-instant"
+        settings.cerebras_chat_model = "gpt-oss-120b"
+        settings.groq_chat_model = "openai/gpt-oss-120b"
         settings.ollama_chat_model = "gpt-oss:120b"
-        settings.groq_chat_model = "llama-3.3-70b-versatile"
-        settings.cerebras_chat_model = "llama-3.3-70b"
 
         providers = {
-            "ollama": FailingProvider(),
-            "groq": FailingProvider(),
             "cerebras": FailingProvider(),
+            "groq": FailingProvider(),
+            "ollama": FailingProvider(),
         }
         router = ModelRouter(providers, settings)
         with pytest.raises(RuntimeError):

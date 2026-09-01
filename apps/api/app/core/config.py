@@ -19,21 +19,37 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000"
 
+    # Cerebras (PRIMARY provider)
+    cerebras_api_key: str = ""
+    cerebras_base_url: str = "https://api.cerebras.ai/v1"
+    cerebras_chat_model: str = "gpt-oss-120b"
+    cerebras_vision_model: str = "gemma-4-31b"
+
+    # Groq (SECONDARY - fast + STT)
+    groq_api_key: str = ""
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_chat_model: str = "openai/gpt-oss-120b"
+    groq_fast_model: str = "llama-3.1-8b-instant"
+    groq_stt_model: str = "whisper-large-v3-turbo"
+
+    # Ollama Cloud (TERTIARY fallback)
     ollama_api_key: str = ""
     ollama_base_url: str = "https://ollama.com/v1"
     ollama_chat_model: str = "gpt-oss:120b"
     ollama_vision_model: str = "gemma4:31b"
+    ollama_fallback_models: str = "gpt-oss:20b,nemotron-3-nano:30b,nemotron-3-super"
 
-    groq_api_key: str = ""
-    groq_base_url: str = "https://api.groq.com/openai/v1"
-    groq_chat_model: str = "llama-3.3-70b-versatile"
-    groq_fast_model: str = "llama-3.1-8b-instant"
-    groq_stt_model: str = "whisper-large-v3-turbo"
+    # Sarvam STT (PRIMARY - Indian languages)
+    sarvam_api_key: str = ""
+    sarvam_base_url: str = "https://api.sarvam.ai/v1"
+    sarvam_stt_model: str = "saaras:v4"
 
-    cerebras_api_key: str = ""
-    cerebras_base_url: str = "https://api.cerebras.ai/v1"
-    cerebras_chat_model: str = "llama-3.3-70b"
+    # Deepgram STT (SECONDARY fallback)
+    deepgram_api_key: str = ""
+    deepgram_base_url: str = "https://api.deepgram.com/v1"
+    deepgram_stt_model: str = "nova-3"
 
+    # Embeddings
     embedding_provider: str = "gemini"
     gemini_api_key: str = ""
     gemini_embedding_model: str = "gemini-embedding-001"
@@ -68,16 +84,24 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
-    def has_ollama(self) -> bool:
-        return bool(self.ollama_api_key)
+    def has_cerebras(self) -> bool:
+        return bool(self.cerebras_api_key)
 
     @property
     def has_groq(self) -> bool:
         return bool(self.groq_api_key)
 
     @property
-    def has_cerebras(self) -> bool:
-        return bool(self.cerebras_api_key)
+    def has_ollama(self) -> bool:
+        return bool(self.ollama_api_key)
+
+    @property
+    def has_sarvam(self) -> bool:
+        return bool(self.sarvam_api_key)
+
+    @property
+    def has_deepgram(self) -> bool:
+        return bool(self.deepgram_api_key)
 
     @property
     def has_gemini(self) -> bool:

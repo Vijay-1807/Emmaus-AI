@@ -100,16 +100,16 @@ transcribe ──→ classify ──→ [rag, data, vision] (parallel)
 
 | Task | Primary | Fallback | Model |
 |------|---------|----------|-------|
-| Reasoning | Ollama | Groq → Cerebras → Mock | gpt-oss:120b |
-| Classification | Groq | Ollama → Cerebras → Mock | llama-3.1-8b-instant |
-| Query Rewrite | Groq | Ollama → Cerebras → Mock | llama-3.1-8b-instant |
-| Reranking | Groq | Ollama → Cerebras → Mock | llama-3.1-8b-instant |
-| Verification | Groq | Ollama → Cerebras → Mock | llama-3.1-8b-instant |
-| Vision | Ollama | Mock | gemma4:31b |
-| Embedding | Gemini 001 | Ollama → Local → Mock | gemini-embedding-001 (3072d) |
-| Speech-to-Text | Groq | — | whisper-large-v3-turbo |
+| Reasoning | Ollama Cloud | Groq → Mock | gpt-oss:120b (free) |
+| Classification | Groq | Ollama → Mock | llama-3.1-8b-instant (free) |
+| Query Rewrite | Groq | Ollama → Mock | llama-3.1-8b-instant (free) |
+| Reranking | Groq | Ollama → Mock | llama-3.1-8b-instant (free) |
+| Verification | Groq | Ollama → Mock | llama-3.1-8b-instant (free) |
+| Vision | Ollama Cloud | Mock | gemma4:31b (free) |
+| Embedding | Gemini 001 | Ollama → Mock | gemini-embedding-001 (3072d, free) |
+| Speech-to-Text | Groq | — | whisper-large-v3-turbo ($0.04/hr) |
 
-**Fallback behavior**: Each provider chain has a MockProvider as the final fallback (never fails, returns structured mock data). In production, if all real providers fail, the system degrades gracefully.
+**Cost**: Primary path is 100% free (Ollama Cloud + Groq free tier + Gemini free tier). STT is ~$0.01/minute.
 
 ## RAG Pipeline
 
@@ -160,7 +160,7 @@ No `exec()`. 7 allow-listed operations:
 | Orchestration | LangGraph (8-node conditional pipeline) |
 | Database | MongoDB Atlas (Vector Search + Atlas Search) |
 | Media | Cloudinary (or local) |
-| Models | Ollama, Groq, Cerebras, Gemini |
+| Models | Ollama Cloud (gpt-oss:120b, gemma4:31b), Groq (llama-3.1-8b-instant, llama-3.3-70b-versatile, whisper-large-v3-turbo), Gemini (embedding-001) |
 | Observability | Langfuse (traces, generation spans, events) |
 | Auth | JWT (HS256) with rotating refresh tokens |
 | Background Jobs | MongoDB-backed durable queue + worker process |

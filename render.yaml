@@ -21,8 +21,6 @@ services:
         value: https://ollama.com/v1
       - key: GROQ_API_KEY
         sync: false
-      - key: CEREBRAS_API_KEY
-        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: CLOUDINARY_CLOUD_NAME
@@ -59,8 +57,6 @@ services:
       - key: OLLAMA_BASE_URL
         value: https://ollama.com/v1
       - key: GROQ_API_KEY
-        sync: false
-      - key: CEREBRAS_API_KEY
         sync: false
       - key: GEMINI_API_KEY
         sync: false

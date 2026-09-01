@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.api.deps import get_current_user, require_workspace
@@ -70,17 +70,22 @@ async def run_evaluation(payload: EvalConfig, user: dict = Depends(get_current_u
 
 @router.get("/runs", response_model=list[EvalRunSummary])
 async def list_runs(
-    workspace_id: str | None = None, limit: int = 20, user: dict = Depends(get_current_user)
+    workspace_id: str = Query(..., description="Workspace ID (required)"),
+    limit: int = Query(20, le=100),
+    user: dict = Depends(get_current_user),
 ) -> list[EvalRunSummary]:
-    if workspace_id:
-        await require_workspace(workspace_id, user)
+    await require_workspace(workspace_id, user)
     runs = await runner.list_runs(workspace_id, limit)
     return [to_summary(r) for r in runs]
 
 
 @router.get("/runs/{run_id}", response_model=EvalRunDetail)
-async def get_run(run_id: str, user: dict = Depends(get_current_user)) -> EvalRunDetail:
-    run = await runner.get_run(run_id)
+async def get_run(
+    run_id: str, workspace_id: str = Query(..., description="Workspace ID (required)"),
+    user: dict = Depends(get_current_user)
+) -> EvalRunDetail:
+    await require_workspace(workspace_id, user)
+    run = await runner.get_run(run_id, workspace_id)
     if not run:
         raise HTTPException(status_code=404, detail="run not found")
     summary = to_summary(run)

@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.asynchronous import AsyncMongoClient
 
 from app.core.config import get_settings
 
@@ -24,7 +24,7 @@ VECTOR_INDEX = {
             {
                 "type": "vector",
                 "path": "embedding",
-                "numDimensions": 768,
+                "numDimensions": 3072,
                 "similarity": "cosine",
             },
             {"type": "filter", "path": "workspace_id"},
@@ -57,7 +57,7 @@ async def main() -> None:
     if settings.embedding_dimensions != 768:
         VECTOR_INDEX["definition"]["fields"][0]["numDimensions"] = settings.embedding_dimensions
         print(f"using embedding dimensions from settings: {settings.embedding_dimensions}")
-    client = AsyncIOMotorClient(settings.mongodb_uri)
+    client = AsyncMongoClient(settings.mongodb_uri)
     db = client[settings.mongodb_db]
     existing = await db.command({"listSearchIndexes": "document_chunks"})
     existing_names = {doc["name"] for doc in existing.get("cursor", {}).get("firstBatch", [])}

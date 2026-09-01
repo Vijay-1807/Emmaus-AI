@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
     health = await embedding_service.health_check()
     logger.info("embedding backend: %s (ok=%s)", health.get("backend"), health.get("ok"))
     yield
-    close_db()
+    await close_db()
     logger.info("shutdown complete")
 
 

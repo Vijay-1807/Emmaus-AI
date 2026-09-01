@@ -34,9 +34,17 @@ async def upload_media(
 ) -> MediaAssetOut:
     await require_workspace(workspace_id, user)
     settings = get_settings()
-    data = await file.read()
-    if len(data) > settings.max_upload_bytes:
-        raise HTTPException(status_code=400, detail=f"file exceeds {settings.max_upload_mb}MB limit")
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(65536)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > settings.max_upload_bytes:
+            raise HTTPException(status_code=400, detail=f"file exceeds {settings.max_upload_mb}MB limit")
+        chunks.append(chunk)
+    data = b"".join(chunks)
     filename = file.filename or "capture.webm"
     kind = kind_for(filename, file.content_type)
     if kind == "file":
@@ -89,3 +97,29 @@ async def get_media(
     if not media:
         raise HTTPException(status_code=404, detail="media asset not found")
     return to_out(media)
+
+
+@router.delete("/{media_id}", status_code=204)
+async def delete_media(
+    media_id: str, workspace_id: str, user: dict = Depends(get_current_user)
+) -> None:
+    await require_workspace(workspace_id, user)
+    db = get_db()
+    media = await db.media_assets.find_one({"_id": media_id, "workspace_id": workspace_id})
+    if not media:
+        raise HTTPException(status_code=404, detail="media asset not found")
+    from app.services.media_service import MediaService, StoredAsset
+
+    if media.get("public_id"):
+        try:
+            svc = MediaService()
+            asset = StoredAsset(
+                public_id=media["public_id"],
+                url=media.get("url", ""),
+                resource_type=media.get("kind", "file"),
+                mode=media.get("storage_mode", "local"),
+            )
+            await svc.delete(asset)
+        except Exception:
+            pass
+    await db.media_assets.delete_one({"_id": media_id, "workspace_id": workspace_id})

@@ -2,14 +2,15 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from pymongo.asynchronous import AsyncMongoClient
+from pymongo.asynchronous.database import AsyncDatabase
 
 from app.core.config import get_settings
 
 logger = logging.getLogger("vedax.db")
 
-_client: AsyncIOMotorClient | None = None
-_db: AsyncIOMotorDatabase | None = None
+_client: AsyncMongoClient | None = None
+_db: AsyncDatabase | None = None
 
 MONGO_INDEXES: dict[str, list[dict]] = {
     "users": [{"name": "email_unique", "key": [("email", 1)], "unique": True}],

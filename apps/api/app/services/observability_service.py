@@ -20,17 +20,16 @@ def percentile(values: list[float], pct: float) -> float:
     return round(ordered[index], 1)
 
 
-async def summary(workspace_id: str | None = None) -> dict:
+async def summary(workspace_id: str) -> dict:
     db = get_db()
-    query = {"workspace_id": workspace_id} if workspace_id else {}
+    query = {"workspace_id": workspace_id}
     investigations = []
     cursor = db.investigations.find({**query, "status": "completed"}).sort("created_at", -1).limit(500)
     async for investigation in cursor:
         investigations.append(investigation)
 
     latencies = [i.get("latency_ms", 0) for i in investigations if i.get("latency_ms")]
-    run_query = {"workspace_id": workspace_id} if workspace_id else {}
-    model_runs = [run async for run in db.model_runs.find(run_query).sort("created_at", -1).limit(2000)]
+    model_runs = [run async for run in db.model_runs.find(query).sort("created_at", -1).limit(2000)]
 
     total_input = sum(r.get("input_tokens", 0) for r in model_runs)
     total_output = sum(r.get("output_tokens", 0) for r in model_runs)
@@ -55,7 +54,7 @@ async def summary(workspace_id: str | None = None) -> dict:
         if entry["calls"]:
             entry["avg_latency_ms"] = round(entry["avg_latency_ms"] / entry["calls"], 1)
 
-    tool_cursor = db.tool_runs.find(run_query).limit(2000)
+    tool_cursor = db.tool_runs.find(query).limit(2000)
     tool_usage: dict[str, dict] = {}
     async for run in tool_cursor:
         key = run.get("tool", "unknown")
@@ -78,9 +77,9 @@ async def summary(workspace_id: str | None = None) -> dict:
     }
 
 
-async def recent_traces(workspace_id: str | None = None, limit: int = 50) -> list[dict]:
+async def recent_traces(workspace_id: str, limit: int = 50) -> list[dict]:
     db = get_db()
-    query = {"workspace_id": workspace_id} if workspace_id else {}
+    query = {"workspace_id": workspace_id}
     cursor = db.investigations.find(query).sort("created_at", -1).limit(limit)
     traces = []
     async for investigation in cursor:

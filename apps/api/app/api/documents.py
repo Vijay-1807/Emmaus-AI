@@ -32,7 +32,18 @@ async def upload_document(
     user: dict = Depends(get_current_user),
 ) -> DocumentOut:
     await require_workspace(workspace_id, user)
-    data = await file.read()
+    chunks: list[bytes] = []
+    total = 0
+    settings = get_settings()
+    while True:
+        chunk = await file.read(65536)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > settings.max_upload_bytes:
+            raise HTTPException(status_code=400, detail=f"file exceeds {settings.max_upload_mb}MB limit")
+        chunks.append(chunk)
+    data = b"".join(chunks)
     try:
         document = await document_service.create_document(
             workspace_id, user["_id"], file.filename or "upload", file.content_type or "", data

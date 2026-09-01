@@ -19,6 +19,11 @@ async def telegram_webhook(
     settings = get_settings()
     if not settings.telegram_bot_token:
         raise HTTPException(status_code=503, detail="telegram bot not configured")
+    if settings.environment == "production" and not settings.telegram_webhook_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="TELEGRAM_WEBHOOK_SECRET must be set in production",
+        )
     if settings.telegram_webhook_secret:
         expected = settings.telegram_webhook_secret
         provided = x_telegram_bot_api_secret_token or ""

@@ -78,7 +78,9 @@ async def transcribe_node(state: InvestigationState) -> dict:
     audio_transcript = None
     audio_id = state.get("audio_media_id")
     if audio_id:
-        media = await db.media_assets.find_one({"_id": audio_id})
+        media = await db.media_assets.find_one(
+            {"_id": audio_id, "workspace_id": state["workspace_id"]}
+        )
         if media and media.get("transcript"):
             audio_transcript = media["transcript"]
             if not question.strip():
@@ -246,10 +248,11 @@ async def vision_node(state: InvestigationState) -> dict:
     db = get_db()
     attachment_ids = state.get("attachment_ids") or []
     results = []
+    ws_id = state["workspace_id"]
     if attachment_ids:
         for attachment_id in attachment_ids:
             media = await db.media_assets.find_one(
-                {"_id": attachment_id, "kind": "image"}
+                {"_id": attachment_id, "kind": "image", "workspace_id": ws_id}
             )
             if media and media.get("analysis"):
                 results.append(
@@ -265,7 +268,7 @@ async def vision_node(state: InvestigationState) -> dict:
                 )
                 continue
             document = await db.documents.find_one(
-                {"_id": attachment_id, "source_type": "image"}
+                {"_id": attachment_id, "source_type": "image", "workspace_id": ws_id}
             )
             if document and document.get("analysis"):
                 results.append(
@@ -289,11 +292,14 @@ async def fuse_node(state: InvestigationState) -> dict:
     db = get_db()
     evidence: list[dict] = []
     chunks = state.get("retrieved_chunks") or []
+    ws_id = state["workspace_id"]
     doc_media: dict[str, str | None] = {}
     for chunk in chunks:
         doc_id = chunk.get("document_id")
         if doc_id and doc_id not in doc_media:
-            document = await db.documents.find_one({"_id": doc_id}, {"media": 1})
+            document = await db.documents.find_one(
+                {"_id": doc_id, "workspace_id": ws_id}, {"media": 1}
+            )
             doc_media[doc_id] = (document.get("media") or {}).get("url") if document else None
     for chunk in chunks:
         evidence.append(

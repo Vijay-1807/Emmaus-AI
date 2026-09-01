@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     ollama_api_key: str = ""
     ollama_base_url: str = "https://ollama.com/v1"
     ollama_chat_model: str = "gpt-oss:120b"
-    ollama_vision_model: str = "gemma3:27b"
+    ollama_vision_model: str = "gemma4:31b"
 
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
@@ -34,7 +34,10 @@ class Settings(BaseSettings):
     cerebras_base_url: str = "https://api.cerebras.ai/v1"
     cerebras_chat_model: str = "llama-3.3-70b"
 
-    embedding_provider: str = "auto"
+    embedding_provider: str = "gemini"
+    gemini_api_key: str = ""
+    gemini_embedding_model: str = "gemini-embedding-001"
+    gemini_embedding_dimensions: int = 3072
     embedding_base_url: str = "https://ollama.com/v1"
     embedding_api_key: str = ""
     embedding_model: str = "nomic-embed-text"
@@ -77,6 +80,10 @@ class Settings(BaseSettings):
         return bool(self.cerebras_api_key)
 
     @property
+    def has_gemini(self) -> bool:
+        return bool(self.gemini_api_key)
+
+    @property
     def has_cloudinary(self) -> bool:
         return bool(
             self.cloudinary_cloud_name and self.cloudinary_api_key and self.cloudinary_api_secret
@@ -85,10 +92,6 @@ class Settings(BaseSettings):
     @property
     def has_langfuse(self) -> bool:
         return bool(self.langfuse_public_key and self.langfuse_secret_key)
-
-    @property
-    def embedding_api_key_resolved(self) -> str:
-        return self.embedding_api_key or self.ollama_api_key
 
     @property
     def max_upload_bytes(self) -> int:

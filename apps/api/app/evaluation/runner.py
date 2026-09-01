@@ -180,16 +180,16 @@ async def _evaluate_case(
     }
 
 
-async def list_runs(workspace_id: str | None, limit: int = 20) -> list[dict]:
+async def list_runs(workspace_id: str, limit: int = 20) -> list[dict]:
     db = get_db()
-    query = {"workspace_id": workspace_id} if workspace_id else {}
+    query = {"workspace_id": workspace_id}
     cursor = db.evaluation_runs.find(query).sort("created_at", -1).limit(limit)
     return [run async for run in cursor]
 
 
-async def get_run(run_id: str) -> dict | None:
+async def get_run(run_id: str, workspace_id: str) -> dict | None:
     db = get_db()
-    return await db.evaluation_runs.find_one({"_id": run_id})
+    return await db.evaluation_runs.find_one({"_id": run_id, "workspace_id": workspace_id})
 
 
 async def list_cases(limit: int = 200) -> list[dict]:

@@ -1,0 +1,33 @@
+{
+  "name": "@vedax/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^15.3",
+    "react": "^19.1",
+    "react-dom": "^19.1",
+    "zustand": "^5.0",
+    "lucide-react": "^0.500",
+    "clsx": "^2.1",
+    "tailwind-merge": "^3.0",
+    "react-markdown": "^10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0",
+    "@types/react": "^19.1",
+    "@types/react-dom": "^19.1",
+    "typescript": "^5.8",
+    "tailwindcss": "^4.1",
+    "@tailwindcss/postcss": "^4.1",
+    "postcss": "^8.5",
+    "eslint": "^9.0",
+    "eslint-config-next": "^15.3"
+  }
+}

@@ -56,7 +56,8 @@ Upload documents, datasets, images, handwritten pages, or audio. Ask a question.
                   Model Router
              ┌────────┼────────┐
              ▼        ▼        ▼
-          Ollama    Groq    Cerebras
+          Cerebras   Groq    Ollama
+          Primary   2ndary  3rdary
              │
              ▼
         Answer / Chart / Report
@@ -87,7 +88,7 @@ transcribe ──→ classify ──→ [rag, data, vision] (parallel)
 
 | Node | Purpose |
 |------|---------|
-| `transcribe` | Audio → text via Groq Whisper |
+| `transcribe` | Audio → text (Sarvam → Deepgram → Groq Whisper) |
 | `classify` | LLM determines needed capabilities (rag/data/vision) |
 | `rag` | Multi-query retrieval + reranking |
 | `data` | Typed pandas operations on datasets |
@@ -98,18 +99,20 @@ transcribe ──→ classify ──→ [rag, data, vision] (parallel)
 
 ## Model Routing
 
-| Task | Primary | Fallback | Model |
-|------|---------|----------|-------|
-| Reasoning | Ollama Cloud | Groq → Mock | gpt-oss:120b (free) |
-| Classification | Groq | Ollama → Mock | llama-3.1-8b-instant (free) |
-| Query Rewrite | Groq | Ollama → Mock | llama-3.1-8b-instant (free) |
-| Reranking | Groq | Ollama → Mock | llama-3.1-8b-instant (free) |
-| Verification | Groq | Ollama → Mock | llama-3.1-8b-instant (free) |
-| Vision | Ollama Cloud | Mock | gemma4:31b (free) |
-| Embedding | Gemini 001 | Ollama → Mock | gemini-embedding-001 (3072d, free) |
-| Speech-to-Text | Groq | — | whisper-large-v3-turbo ($0.04/hr) |
+Fallback order: **Cerebras → Groq → Ollama → Mock**
 
-**Cost**: Primary path is 100% free (Ollama Cloud + Groq free tier + Gemini free tier). STT is ~$0.01/minute.
+| Task | Primary | 2nd | 3rd | Model |
+|------|---------|-----|-----|-------|
+| Reasoning | Cerebras | Groq | Ollama | gpt-oss-120b |
+| Classification | Cerebras | Groq | Ollama | gpt-oss-120b |
+| Query Rewrite | Cerebras | Groq | Ollama | gpt-oss-120b |
+| Reranking | Cerebras | Groq | Ollama | gpt-oss-120b |
+| Verification | Cerebras | Groq | Ollama | gpt-oss-120b |
+| Vision | Cerebras | Ollama | Mock | gemma-4-31b |
+| Embedding | Gemini 001 | Ollama | Local | gemini-embedding-001 (3072d) |
+| Speech-to-Text | Sarvam | Deepgram | Groq | saaras:v4 / nova-3 / whisper-large-v3-turbo |
+
+**STT chain**: Sarvam Saaras v4 (best for Indian languages) → Deepgram Nova-3 (general) → Groq Whisper (fast/cheap)
 
 ## RAG Pipeline
 

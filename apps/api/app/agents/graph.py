@@ -10,7 +10,7 @@ from app.core.db import get_db
 from app.data.analysis import analyze_dataset
 from app.providers.base import TaskType
 from app.providers.registry import get_model_router
-from app.rag.query import rewrite_query
+from app.rag.query import generate_multi_queries, rewrite_query
 from app.rag.retriever import get_retriever
 
 logger = logging.getLogger("vedax.graph")
@@ -159,12 +159,31 @@ async def rag_node(state: InvestigationState) -> dict:
     attachment_docs = await _resolve_attachment_documents(state)
     retriever = get_retriever()
     mode = state.get("retrieval_mode") or "hybrid_rerank"
+
     chunks = await retriever.retrieve(
         state["workspace_id"],
         rewritten,
         mode=mode,
         document_ids=attachment_docs or None,
     )
+
+    if len(chunks) < 3 and state.get("retry_count", 0) == 0:
+        alt_queries = await generate_multi_queries(
+            rewritten, ctx=ctx, num_queries=2
+        )
+        seen_ids = {c.chunk_id for c in chunks}
+        for alt_q in alt_queries:
+            alt_chunks = await retriever.retrieve(
+                state["workspace_id"],
+                alt_q,
+                mode=mode,
+                document_ids=attachment_docs or None,
+            )
+            for c in alt_chunks:
+                if c.chunk_id not in seen_ids:
+                    chunks.append(c)
+                    seen_ids.add(c.chunk_id)
+
     serialized = [
         {
             "chunk_id": c.chunk_id,

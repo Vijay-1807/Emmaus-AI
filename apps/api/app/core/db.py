@@ -62,7 +62,7 @@ MONGO_INDEXES: dict[str, list[dict]] = {
 async def connect_db() -> None:
     global _client, _db
     settings = get_settings()
-    _client = AsyncIOMotorClient(settings.mongodb_uri, serverSelectionTimeoutMS=8000)
+    _client = AsyncMongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=8000)
     _db = _client[settings.mongodb_db]
     await _client.admin.command("ping")
     await _ensure_indexes()

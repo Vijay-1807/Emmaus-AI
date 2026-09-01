@@ -19,7 +19,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       if (isSignUp) {
-        await apiFetch("/api/auth/signup", {
+        await apiFetch("/api/auth/register", {
           method: "POST",
           body: JSON.stringify({ email, password, name }),
         });

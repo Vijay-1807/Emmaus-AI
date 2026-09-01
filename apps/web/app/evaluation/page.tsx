@@ -33,7 +33,7 @@ export default function EvaluationPage() {
     if (!wsId || running) return;
     setRunning(true);
     try {
-      await apiFetch("/api/evaluation/runs", {
+      await apiFetch("/api/evaluation/run", {
         method: "POST",
         body: JSON.stringify({ workspace_id: wsId, retrieval_mode: "hybrid_rerank" }),
       });

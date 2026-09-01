@@ -2,37 +2,93 @@ import pandas as pd
 import pytest
 
 from app.data.analysis import (
+    FilterStep,
+    GroupByStep,
+    SortStep,
+    SelectStep,
+    ComputeStep,
+    ComparePeriodsStep,
+    DetectAnomalyStep,
+    _apply_filter,
+    _apply_group_by,
+    _apply_sort,
+    _apply_select,
+    _apply_compute,
+    _apply_detect_anomaly,
+    _execute_plan,
     build_chart_spec,
-    _execute,
-    _guard_code,
     result_to_text,
 )
 
 
-def test_guard_rejects_dangerous_code():
-    for bad in ["import os", "open('/etc/passwd')", "x = a.__class__", "exec('1')", "while True:\n    pass"]:
-        with pytest.raises(ValueError):
-            _guard_code(bad)
+def test_filter_eq():
+    df = pd.DataFrame({"region": ["north", "south", "north"], "revenue": [10, 20, 30]})
+    step = FilterStep(column="region", op="eq", value="north")
+    result = _apply_filter(df, step)
+    assert len(result) == 2
+    assert all(result["region"] == "north")
 
 
-def test_guard_allows_normal_pandas():
-    _guard_code("result = df.groupby('region')['revenue'].sum()")
+def test_filter_gt():
+    df = pd.DataFrame({"x": [1, 5, 10, 15]})
+    step = FilterStep(column="x", op="gt", value=7)
+    result = _apply_filter(df, step)
+    assert list(result["x"]) == [10, 15]
 
 
-def test_execute_groupby():
-    df = pd.DataFrame(
-        {"region": ["north", "south", "north"], "revenue": [10, 20, 30]}
-    )
-    code = "result = df.groupby('region')['revenue'].sum()"
-    result = _execute(code, df)
-    assert result["north"] == 40
-    assert result["south"] == 20
+def test_filter_contains():
+    df = pd.DataFrame({"name": ["Alice", "Bob", "Alicia"]})
+    step = FilterStep(column="name", op="contains", value="ali")
+    result = _apply_filter(df, step)
+    assert len(result) == 2
 
 
-def test_execute_missing_result_raises():
-    df = pd.DataFrame({"a": [1]})
-    with pytest.raises(ValueError):
-        _execute("x = df['a'].sum()", df)
+def test_group_by_sum():
+    df = pd.DataFrame({"region": ["north", "south", "north"], "revenue": [10, 20, 30]})
+    step = GroupByStep(by=["region"], metrics={"total": "sum"})
+    result = _apply_group_by(df, step)
+    assert result.set_index("region")["total"]["north"] == 40
+    assert result.set_index("region")["total"]["south"] == 20
+
+
+def test_sort_ascending():
+    df = pd.DataFrame({"x": [3, 1, 2]})
+    step = SortStep(by=["x"], ascending=[True])
+    result = _apply_sort(df, step)
+    assert list(result["x"]) == [1, 2, 3]
+
+
+def test_select_columns():
+    df = pd.DataFrame({"a": [1], "b": [2], "c": [3]})
+    step = SelectStep(columns=["a", "c"])
+    result = _apply_select(df, step)
+    assert list(result.columns) == ["a", "c"]
+
+
+def test_compute_new_column():
+    df = pd.DataFrame({"x": [1, 2, 3]})
+    step = ComputeStep(name="doubled", expr="df['x'] * 2")
+    result = _apply_compute(df, step)
+    assert list(result["doubled"]) == [2, 4, 6]
+
+
+def test_detect_anomaly_zscore():
+    df = pd.DataFrame({"x": [1, 1, 1, 1, 100]})
+    step = DetectAnomalyStep(column="x", method="zscore", threshold=2.0)
+    result = _apply_detect_anomaly(df, step)
+    assert result["_is_anomaly"].sum() == 1
+    assert result.iloc[-1]["_is_anomaly"] is True
+
+
+def test_execute_plan():
+    df = pd.DataFrame({"region": ["north", "south", "north"], "revenue": [10, 20, 30]})
+    steps = [
+        FilterStep(column="region", op="eq", value="north"),
+        GroupByStep(by=["region"], metrics={"total": "sum"}),
+    ]
+    result = _execute_plan(df, steps)
+    assert len(result) == 1
+    assert result.iloc[0]["total"] == 40
 
 
 def test_build_chart_spec_from_series():
@@ -51,3 +107,7 @@ def test_result_to_text_truncates():
     df = pd.DataFrame({"a": range(100), "b": range(100)})
     text = result_to_text(df)
     assert "rows total" in text
+
+
+def test_result_to_text_scalar():
+    assert result_to_text(42) == "42"

@@ -84,6 +84,21 @@ async def signup(email: str, password: str, name: str) -> dict:
     return await _issue_tokens(user)
 
 
+async def create_anonymous_session() -> dict:
+    db = get_db()
+    anon_id = f"anon_{uuid.uuid4().hex}"
+    user = {
+        "_id": anon_id,
+        "email": f"{anon_id}@anonymous.local",
+        "name": "Guest",
+        "password_hash": "",
+        "is_anonymous": True,
+        "created_at": now(),
+    }
+    await db.users.insert_one(user)
+    return await _issue_tokens(user)
+
+
 def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 

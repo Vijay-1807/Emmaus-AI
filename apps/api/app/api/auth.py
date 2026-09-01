@@ -25,6 +25,12 @@ async def login(payload: LoginIn) -> TokenPair:
     return TokenPair(**tokens)
 
 
+@router.post("/anonymous", response_model=TokenPair, status_code=201)
+async def anonymous_session() -> TokenPair:
+    tokens = await auth_service.create_anonymous_session()
+    return TokenPair(**tokens)
+
+
 @router.post("/refresh", response_model=TokenPair)
 async def refresh(payload: RefreshIn) -> TokenPair:
     try:

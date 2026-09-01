@@ -43,3 +43,20 @@ export async function apiFetch<T = unknown>(
 export function sseUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
+
+export async function ensureAnonymousSession(): Promise<string> {
+  const existing = getToken();
+  if (existing) return existing;
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/anonymous`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setToken(data.access_token);
+      return data.access_token;
+    }
+  } catch {}
+  return "";
+}

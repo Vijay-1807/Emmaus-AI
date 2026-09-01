@@ -1,0 +1,51 @@
+services:
+  api:
+    build:
+      context: apps/api
+      dockerfile: ../../infra/docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    env_file:
+      - apps/api/.env
+    environment:
+      - ENVIRONMENT=development
+      - MONGODB_URI=mongodb://mongo:27017
+      - MONGODB_DB=vedax
+    depends_on:
+      - mongo
+    volumes:
+      - ./apps/api/media:/app/media
+
+  worker:
+    build:
+      context: apps/api
+      dockerfile: ../../infra/docker/Dockerfile.worker
+    env_file:
+      - apps/api/.env
+    environment:
+      - ENVIRONMENT=development
+      - MONGODB_URI=mongodb://mongo:27017
+      - MONGODB_DB=vedax
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - api
+
+volumes:
+  mongo_data:

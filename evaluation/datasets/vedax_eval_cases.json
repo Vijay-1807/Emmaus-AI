@@ -1,86 +1,78 @@
 [
-  {
-    "id": "direct-revenue-q3",
-    "question": "What was total revenue in Q3?",
-    "expected_answer": "Total Q3 revenue was $2.4M.",
-    "expected_document_names": ["quarterly_report.pdf"],
-    "category": "direct"
-  },
-  {
-    "id": "multi-hop-decline-driver",
-    "question": "Which region contributed most to the Q3 revenue decline and by how much?",
-    "expected_answer": "The South region contributed most to the decline, roughly a 63% share of the total drop.",
-    "expected_document_names": ["quarterly_report.pdf", "sales.xlsx"],
-    "category": "multi_hop"
-  },
-  {
-    "id": "table-headcount",
-    "question": "How many employees were hired in each department?",
-    "expected_answer": "Engineering hired 12, Sales 8, Support 5.",
-    "expected_document_names": ["headcount.xlsx"],
-    "category": "table"
-  },
-  {
-    "id": "handwriting-action-items",
-    "question": "List the action items from the handwritten meeting notes.",
-    "expected_answer": "Action items: send the revised quote, schedule the vendor call, and update the roadmap.",
-    "expected_document_names": ["notes.jpg"],
-    "category": "handwriting"
-  },
-  {
-    "id": "chart-trend",
-    "question": "What changed between the two periods shown in the sales chart?",
-    "expected_answer": "Revenue fell from $3.1M to $2.4M, driven mainly by the South region.",
-    "expected_document_names": ["sales_chart.png"],
-    "category": "image"
-  },
-  {
-    "id": "unanswerable-competitor",
-    "question": "What is Competitor X's market share?",
-    "expected_answer": "Insufficient evidence: the documents do not mention Competitor X's market share.",
-    "expected_document_names": [],
-    "category": "unanswerable"
-  },
-  {
-    "id": "retrieval-policy-terms",
-    "question": "What are the termination conditions in the contract?",
-    "expected_answer": "Either party may terminate with 30 days written notice; immediate termination for material breach.",
-    "expected_document_names": ["contract.pdf"],
-    "category": "retrieval_heavy"
-  },
-  {
-    "id": "mixed-audio-chart",
-    "question": "Summarize the risks mentioned in the recorded briefing.",
-    "expected_answer": "Top risks: supply delays, currency exposure, and a delayed product launch.",
-    "expected_document_names": ["briefing.m4a"],
-    "category": "mixed"
-  },
-  {
-    "id": "direct-definition",
-    "question": "How does the report define 'active user'?",
-    "expected_answer": "An active user is any account with at least one session in the trailing 30 days.",
-    "expected_document_names": ["quarterly_report.pdf"],
-    "category": "direct"
-  },
-  {
-    "id": "ambiguous-growth",
-    "question": "Did growth improve?",
-    "expected_answer": "Growth improved in the North and West regions but declined in the South.",
-    "expected_document_names": ["sales.xlsx"],
-    "category": "ambiguous"
-  },
-  {
-    "id": "multi-hop-cost-revenue",
-    "question": "Compare Q3 marketing spend with the revenue it generated in the same quarter.",
-    "expected_answer": "Marketing spent $300K in Q3 against $2.4M revenue, about 12.5% of revenue.",
-    "expected_document_names": ["quarterly_report.pdf", "sales.xlsx"],
-    "category": "multi_hop"
-  },
-  {
-    "id": "table-margin",
-    "question": "Which product had the highest gross margin?",
-    "expected_answer": "Product A had the highest gross margin at 61%.",
-    "expected_document_names": ["products.xlsx"],
-    "category": "table"
-  }
+  {"id": "direct-revenue-q3", "question": "What was total revenue in Q3?", "expected_answer": "Total Q3 revenue was $2.4M.", "expected_document_names": ["quarterly_report.pdf"], "category": "direct"},
+  {"id": "direct-employee-count", "question": "How many employees does the company have?", "expected_answer": "The company has 156 employees.", "expected_document_names": ["quarterly_report.pdf"], "category": "direct"},
+  {"id": "direct-profit-margin", "question": "What is the gross profit margin?", "expected_answer": "Gross profit margin is 42%.", "expected_document_names": ["quarterly_report.pdf"], "category": "direct"},
+  {"id": "direct-top-product", "question": "What is the top-selling product?", "expected_answer": "Widget Pro is the top-selling product.", "expected_document_names": ["sales.xlsx"], "category": "direct"},
+  {"id": "direct-total-customers", "question": "How many active customers are there?", "expected_answer": "There are 2,340 active customers.", "expected_document_names": ["quarterly_report.pdf"], "category": "direct"},
+
+  {"id": "multi-hop-decline-driver", "question": "Which region contributed most to the Q3 revenue decline and by how much?", "expected_answer": "The South region contributed most to the decline, roughly a 63% share of the total drop.", "expected_document_names": ["quarterly_report.pdf", "sales.xlsx"], "category": "multi_hop"},
+  {"id": "multi-hop-dept-growth", "question": "Which department had the highest headcount growth and what was their revenue contribution?", "expected_answer": "Engineering had the highest headcount growth (12 new hires) and contributes to product development.", "expected_document_names": ["headcount.xlsx", "quarterly_report.pdf"], "category": "multi_hop"},
+  {"id": "multi-hop-retention-revenue", "question": "How does customer retention rate relate to recurring revenue trends?", "expected_answer": "Customer retention is 87% and recurring revenue grew 12% QoQ.", "expected_document_names": ["quarterly_report.pdf", "sales.xlsx"], "category": "multi_hop"},
+  {"id": "multi-hop-pricing-margin", "question": "Which product has the best margin and how did its sales volume change?", "expected_answer": "Widget Pro has the best margin at 58% and sales volume increased 15%.", "expected_document_names": ["sales.xlsx"], "category": "multi_hop"},
+  {"id": "multi-hop-region-headcount", "question": "What is the revenue per employee in each region?", "expected_answer": "North: $25K, South: $18K, East: $22K, West: $20K per employee.", "expected_document_names": ["sales.xlsx", "headcount.xlsx"], "category": "multi_hop"},
+
+  {"id": "table-headcount", "question": "How many employees were hired in each department?", "expected_answer": "Engineering hired 12, Sales 8, Support 5.", "expected_document_names": ["headcount.xlsx"], "category": "table"},
+  {"id": "table-sales-by-region", "question": "What were total sales by region?", "expected_answer": "North: $800K, South: $600K, East: $550K, West: $450K.", "expected_document_names": ["sales.xlsx"], "category": "table"},
+  {"id": "table-monthly-trend", "question": "What is the monthly revenue trend for Q3?", "expected_answer": "July: $850K, August: $780K, September: $770K - declining trend.", "expected_document_names": ["sales.xlsx"], "category": "table"},
+  {"id": "table-department-budget", "question": "What is the budget allocation per department?", "expected_answer": "Engineering 40%, Sales 25%, Marketing 20%, Support 10%, Admin 5%.", "expected_document_names": ["headcount.xlsx"], "category": "table"},
+  {"id": "table-product-sku", "question": "How many SKUs are in each product category?", "expected_answer": "Widgets: 12, Gadgets: 8, Services: 5.", "expected_document_names": ["sales.xlsx"], "category": "table"},
+
+  {"id": "handwriting-action-items", "question": "List the action items from the handwritten meeting notes.", "expected_answer": "Action items: send the revised quote, schedule the vendor call, and update the roadmap.", "expected_document_names": ["notes.jpg"], "category": "handwriting"},
+  {"id": "handwriting-deadlines", "question": "What deadlines are mentioned in the handwritten notes?", "expected_answer": "Deadlines: Friday for quote, next Tuesday for vendor call, end of month for roadmap.", "expected_document_names": ["notes.jpg"], "category": "handwriting"},
+  {"id": "handwriting-attendees", "question": "Who attended the meeting according to the handwritten notes?", "expected_answer": "Attendees include the project manager, lead engineer, and sales rep.", "expected_document_names": ["notes.jpg"], "category": "handwriting"},
+  {"id": "handwriting-budget-note", "question": "What budget figures are written in the meeting notes?", "expected_answer": "Budget: $50K for Q4 marketing, $30K for tooling upgrades.", "expected_document_names": ["notes.jpg"], "category": "handwriting"},
+  {"id": "handwriting-key-decisions", "question": "What key decisions were recorded in the handwritten notes?", "expected_answer": "Decisions: switch to new vendor, hire 2 more engineers, launch beta in November.", "expected_document_names": ["notes.jpg"], "category": "handwriting"},
+
+  {"id": "image-chart-analysis", "question": "What does the bar chart show about revenue by region?", "expected_answer": "The bar chart shows North leading with $800K, followed by South $600K.", "expected_document_names": ["chart.png"], "category": "vision"},
+  {"id": "image-screenshot-data", "question": "What data is visible in the dashboard screenshot?", "expected_answer": "The screenshot shows a dashboard with KPIs: revenue, users, and conversion rate.", "expected_document_names": ["chart.png"], "category": "vision"},
+  {"id": "image-flowchart", "question": "Describe the process flow shown in the diagram.", "expected_answer": "The flowchart shows: intake -> processing -> review -> output.", "expected_document_names": ["chart.png"], "category": "vision"},
+  {"id": "image-architecture", "question": "What components are shown in the architecture diagram?", "expected_answer": "Components: API gateway, microservices, database, cache layer.", "expected_document_names": ["chart.png"], "category": "vision"},
+  {"id": "image-whiteboard", "question": "What was brainstormed on the whiteboard?", "expected_answer": "Ideas: new feature list, priority matrix, timeline milestones.", "expected_document_names": ["chart.png"], "category": "vision"},
+
+  {"id": "audio-summary", "question": "Summarize the audio recording.", "expected_answer": "The audio is a meeting discussing Q3 results and Q4 planning.", "expected_document_names": ["meeting.wav"], "category": "audio"},
+  {"id": "audio-action-items", "question": "What action items were discussed in the audio?", "expected_answer": "Actions: prepare budget proposal, schedule client demo, review hiring plan.", "expected_document_names": ["meeting.wav"], "category": "audio"},
+  {"id": "audio-key-points", "question": "What are the key points from the voice recording?", "expected_answer": "Key points: revenue declined 14%, South region was the main driver, new product launch in Q4.", "expected_document_names": ["meeting.wav"], "category": "audio"},
+  {"id": "audio-speakers", "question": "How many speakers are in the audio recording?", "expected_answer": "There are 3 distinct speakers in the recording.", "expected_document_names": ["meeting.wav"], "category": "audio"},
+  {"id": "audio-timeline", "question": "What timeline or dates are mentioned in the audio?", "expected_answer": "Dates mentioned: October 15 for launch, November for beta, December for review.", "expected_document_names": ["meeting.wav"], "category": "audio"},
+
+  {"id": "unanswerable-future", "question": "What will Q4 revenue be?", "expected_answer": "Insufficient evidence - Q4 has not occurred yet and no forecast is in the documents.", "expected_document_names": [], "category": "unanswerable"},
+  {"id": "unanswerable-competitor", "question": "How do we compare to Competitor X?", "expected_answer": "Insufficient evidence - no competitor data is available in the documents.", "expected_document_names": [], "category": "unanswerable"},
+  {"id": "unanswerable-salary", "question": "What is the CEO's salary?", "expected_answer": "Insufficient evidence - executive compensation is not in the documents.", "expected_document_names": [], "category": "unanswerable"},
+  {"id": "unanswerable-stock", "question": "What is the company's stock price?", "expected_answer": "Insufficient evidence - no stock market data is in the documents.", "expected_document_names": [], "category": "unanswerable"},
+  {"id": "unanswerable-legal", "question": "Are there any pending lawsuits?", "expected_answer": "Insufficient evidence - legal matters are not covered in the documents.", "expected_document_names": [], "category": "unanswerable"},
+
+  {"id": "ambiguous-overview", "question": "Tell me about the company.", "expected_answer": "VedaX is a technology company with 156 employees, $2.4M Q3 revenue, operating across 4 regions.", "expected_document_names": ["quarterly_report.pdf"], "category": "ambiguous"},
+  {"id": "ambiguous-performance", "question": "How is the company doing?", "expected_answer": "Mixed: revenue declined 14% in Q3 but customer retention is strong at 87%.", "expected_document_names": ["quarterly_report.pdf", "sales.xlsx"], "category": "ambiguous"},
+  {"id": "ambiguous-things", "question": "What should I know?", "expected_answer": "Key facts: Q3 revenue $2.4M (down 14%), 156 employees, 87% retention, Widget Pro is top product.", "expected_document_names": ["quarterly_report.pdf"], "category": "ambiguous"},
+  {"id": "ambiguous-issues", "question": "What are the main challenges?", "expected_answer": "Main challenges: South region decline, overall revenue contraction, need for new product launches.", "expected_document_names": ["quarterly_report.pdf", "sales.xlsx"], "category": "ambiguous"},
+  {"id": "ambiguous-next", "question": "What should we do next?", "expected_answer": "Recommendations: focus on South region recovery, accelerate Q4 product launch, optimize cost structure.", "expected_document_names": ["quarterly_report.pdf"], "category": "ambiguous"},
+
+  {"id": "retrieval-doc-specific", "question": "What does page 5 of the quarterly report say about customer acquisition?", "expected_answer": "Page 5 discusses customer acquisition costs and channel performance.", "expected_document_names": ["quarterly_report.pdf"], "category": "retrieval_heavy"},
+  {"id": "retrieval-table-specific", "question": "What is the exact value in the South region, Q3 column of the sales table?", "expected_answer": "South region Q3 sales: $600,000.", "expected_document_names": ["sales.xlsx"], "category": "retrieval_heavy"},
+  {"id": "retrieval-cross-doc", "question": "Compare the headcount data with revenue data across all regions.", "expected_answer": "North: 32 people, $800K revenue ($25K/person). South: 33 people, $600K ($18K/person).", "expected_document_names": ["headcount.xlsx", "sales.xlsx"], "category": "retrieval_heavy"},
+  {"id": "retrieval-date-specific", "question": "What events are scheduled for October?", "expected_answer": "October 15: new product launch. October 20: board meeting.", "expected_document_names": ["quarterly_report.pdf"], "category": "retrieval_heavy"},
+  {"id": "retrieval-numerical", "question": "What is the exact churn rate mentioned in the report?", "expected_answer": "The churn rate is 13% (derived from 87% retention).", "expected_document_names": ["quarterly_report.pdf"], "category": "retrieval_heavy"},
+
+  {"id": "mixed-pdf-image", "question": "What does the quarterly report say and what does the accompanying chart show?", "expected_answer": "Report says revenue fell 14%. Chart visualizes the decline across regions.", "expected_document_names": ["quarterly_report.pdf", "chart.png"], "category": "mixed"},
+  {"id": "mixed-text-data", "question": "Based on the meeting notes and the sales data, what actions should we take?", "expected_answer": "Meeting notes suggest focusing on South region. Sales data confirms South is the biggest decline.", "expected_document_names": ["notes.jpg", "sales.xlsx"], "category": "mixed"},
+  {"id": "mixed-audio-report", "question": "Compare the audio discussion with the written quarterly report.", "expected_answer": "Both discuss Q3 revenue decline. Audio adds context about competitive pressure.", "expected_document_names": ["meeting.wav", "quarterly_report.pdf"], "category": "mixed"},
+  {"id": "mixed-all-modalities", "question": "Give me a complete picture using all available sources.", "expected_answer": "Comprehensive view: report (revenue data), sales (regional breakdown), chart (visual), notes (action items).", "expected_document_names": ["quarterly_report.pdf", "sales.xlsx", "chart.png", "notes.jpg"], "category": "mixed"},
+  {"id": "mixed-vision-data", "question": "What insights come from combining the chart image with the spreadsheet data?", "expected_answer": "Chart shows trends visually. Spreadsheet provides exact numbers. Both confirm South decline.", "expected_document_names": ["chart.png", "sales.xlsx"], "category": "mixed"},
+
+  {"id": "analysis-sum", "question": "What is the total revenue across all regions?", "expected_answer": "Total: $2,400,000 ($800K + $600K + $550K + $450K).", "expected_document_names": ["sales.xlsx"], "category": "data_analysis"},
+  {"id": "analysis-average", "question": "What is the average revenue per region?", "expected_answer": "Average: $600,000 per region.", "expected_document_names": ["sales.xlsx"], "category": "data_analysis"},
+  {"id": "analysis-trend", "question": "Is revenue trending up or down over the three months?", "expected_answer": "Revenue is trending down: July $850K -> August $780K -> September $770K.", "expected_document_names": ["sales.xlsx"], "category": "data_analysis"},
+  {"id": "analysis-compare", "question": "Which region has the highest revenue per employee?", "expected_answer": "North region at approximately $25,000 per employee.", "expected_document_names": ["sales.xlsx", "headcount.xlsx"], "category": "data_analysis"},
+  {"id": "analysis-percentage", "question": "What percentage of total revenue comes from each region?", "expected_answer": "North: 33%, South: 25%, East: 23%, West: 19%.", "expected_document_names": ["sales.xlsx"], "category": "data_analysis"},
+  {"id": "analysis-anomaly", "question": "Are there any unusual data points in the sales data?", "expected_answer": "South region shows an anomalous decline of 23% compared to other regions.", "expected_document_names": ["sales.xlsx"], "category": "data_analysis"},
+  {"id": "analysis-growth-rate", "question": "What is the month-over-month growth rate?", "expected_answer": "July to August: -8.2%. August to September: -1.3%. Decelerating decline.", "expected_document_names": ["sales.xlsx"], "category": "data_analysis"},
+  {"id": "analysis-top-n", "question": "What are the top 2 products by revenue?", "expected_answer": "Widget Pro ($900K) and Gadget Plus ($600K).", "expected_document_names": ["sales.xlsx"], "category": "data_analysis"},
+  {"id": "analysis-correlation", "question": "Is there a correlation between headcount and revenue by region?", "expected_answer": "Weak positive correlation. North has fewer people but highest revenue (best efficiency).", "expected_document_names": ["sales.xlsx", "headcount.xlsx"], "category": "data_analysis"},
+  {"id": "analysis-pivot", "question": "Break down revenue by region and product.", "expected_answer": "North: Widgets $500K, Gadgets $300K. South: Widgets $350K, Gadgets $250K.", "expected_document_names": ["sales.xlsx"], "category": "data_analysis"},
+
+  {"id": "conversational-followup", "question": "Can you tell me more about that?", "expected_answer": "Requires context from previous conversation to answer meaningfully.", "expected_document_names": ["quarterly_report.pdf"], "category": "conversational"},
+  {"id": "conversational-clarify", "question": "What do you mean by that?", "expected_answer": "The question is ambiguous and needs clarification about which specific metric or topic.", "expected_document_names": [], "category": "conversational"},
+  {"id": "conversational-compare", "question": "Is that good or bad?", "expected_answer": "Context-dependent. Revenue decline of 14% is negative. But 87% retention is positive.", "expected_document_names": ["quarterly_report.pdf"], "category": "conversational"},
+  {"id": "conversational-how", "question": "How did you arrive at that number?", "expected_answer": "The answer is derived from the revenue figures in the quarterly report.", "expected_document_names": ["quarterly_report.pdf"], "category": "conversational"},
+  {"id": "conversational-why", "question": "Why is this important?", "expected_answer": "Revenue trends indicate business health and guide strategic decisions for Q4.", "expected_document_names": ["quarterly_report.pdf"], "category": "conversational"}
 ]

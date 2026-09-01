@@ -9,6 +9,7 @@ from app.agents import events
 from app.agents.graph import get_graph
 from app.core.db import get_db
 from app.core.logging import new_trace_id
+from app.observability import langfuse
 from app.providers.base import RunContext
 
 logger = logging.getLogger("vedax.orchestrator")
@@ -138,16 +139,43 @@ async def run_investigation(
     emitter_token = None
     ctx_token = None
     started = time.perf_counter()
+    lf_span = None
     try:
         queue: asyncio.Queue = asyncio.Queue()
 
         def collector(event: dict) -> None:
             queue.put_nowait(event)
+            if event.get("type") == "node" and lf_span is not None:
+                langfuse.record_event(
+                    lf_span,
+                    name=f"node:{event.get('node', '?')}",
+                    event_type="node_execution",
+                    metadata={"detail": event.get("detail", "")},
+                )
 
         emitter_token = events.set_emitter(collector)
         ctx_token = events.set_run_ctx(run_ctx)
         graph = get_graph()
         merged: dict[str, Any] = {}
+
+        from app.observability.langfuse import _get_client
+
+        lf_client = _get_client()
+        if lf_client is not None:
+            try:
+                trace_obj = lf_client.trace(
+                    name=f"investigation:{question[:60]}",
+                    metadata={
+                        "investigation_id": investigation_id,
+                        "workspace_id": workspace_id,
+                        "user_id": user_id,
+                    },
+                    user_id=user_id,
+                    tags=["investigation", retrieval_mode],
+                )
+                lf_span = trace_obj
+            except Exception:
+                lf_span = None
 
         async def pump() -> None:
             async for update in graph.astream(state, stream_mode="updates"):
@@ -166,6 +194,29 @@ async def run_investigation(
         final_state = merged
         answer = final_state.get("answer", "")
         latency_ms = round((time.perf_counter() - started) * 1000, 1)
+
+        if lf_span is not None:
+            try:
+                lf_span.update(
+                    metadata={
+                        "answer_length": len(answer),
+                        "citations_count": len(citations),
+                        "charts_count": len(charts),
+                        "capabilities": capabilities,
+                        "confidence": confidence,
+                    },
+                )
+                langfuse.record_event(
+                    lf_span,
+                    name="investigation_complete",
+                    event_type="completion",
+                    metadata={
+                        "latency_ms": latency_ms,
+                        "answer_preview": answer[:200],
+                    },
+                )
+            except Exception:
+                pass
 
         citations = final_state.get("citations", [])
         charts = final_state.get("charts", [])
@@ -268,3 +319,4 @@ async def run_investigation(
             events.reset_emitter(emitter_token)
         if ctx_token is not None:
             events.reset_run_ctx(ctx_token)
+        langfuse.flush()

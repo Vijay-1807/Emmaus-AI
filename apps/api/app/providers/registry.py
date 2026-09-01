@@ -1,7 +1,9 @@
 import logging
+import time
 from typing import Any
 
 from app.core.config import get_settings
+from app.observability.langfuse import _get_client as _get_langfuse
 from app.providers.base import (
     CompletionResult,
     LLMProvider,
@@ -83,8 +85,10 @@ class ModelRouter:
     ) -> CompletionResult:
         errors: list[str] = []
         chain = self._chain(task)
+        lf_client = _get_langfuse()
         for index, (provider, model) in enumerate(chain):
             try:
+                started = time.perf_counter()
                 result = await provider.complete(
                     messages,
                     task=task,
@@ -102,6 +106,25 @@ class ModelRouter:
                         provider.name,
                         model,
                     )
+                if lf_client is not None and ctx is not None:
+                    try:
+                        input_preview = str(messages[-1].get("content", ""))[:500] if messages else ""
+                        lf_client.span(
+                            name=f"llm:{task.value}",
+                            input=input_preview,
+                            output=result.text[:500],
+                            model=model,
+                            metadata={
+                                "provider": provider.name,
+                                "task": task.value,
+                                "input_tokens": result.input_tokens,
+                                "output_tokens": result.output_tokens,
+                                "latency_ms": result.latency_ms,
+                                "fallback_used": result.fallback_used,
+                            },
+                        )
+                    except Exception:
+                        pass
                 return result
             except Exception as exc:
                 errors.append(f"{provider.name}/{model}: {exc}")

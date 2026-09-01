@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
+import CameraCapture from "@/components/CameraCapture";
 import { apiFetch, sseUrl, getToken } from "@/lib/api";
 import type { Document, Dataset, Citation, Chart, Evidence } from "@/lib/types";
 import { formatDate, formatBytes } from "@/lib/utils";
@@ -25,6 +26,7 @@ export default function WorkspacePage() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [selectedEvidence, setSelectedEvidence] = useState<Evidence[]>([]);
+  const [showCamera, setShowCamera] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -231,7 +233,17 @@ export default function WorkspacePage() {
             </div>
 
             <div className="p-4 border-t border-border shrink-0">
-              <div className="flex gap-2 max-w-3xl mx-auto">
+              <div className="flex gap-2 max-w-3xl mx-auto items-end">
+                <button
+                  onClick={() => setShowCamera(true)}
+                  className="px-3 py-2.5 bg-surface border border-border rounded-xl text-text-muted hover:text-text hover:border-border-active transition-colors text-sm shrink-0"
+                  title="Capture from camera"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                </button>
                 <textarea
                   ref={inputRef}
                   value={input}
@@ -278,6 +290,89 @@ export default function WorkspacePage() {
           </div>
         </div>
       </div>
+
+      {showCamera && (
+        <CameraCapture
+          onCapture={async (blob, filename) => {
+            setShowCamera(false);
+            const formData = new FormData();
+            formData.append("file", blob, filename);
+            formData.append("workspace_id", wsId);
+            try {
+              const token = getToken();
+              const uploaded = await fetch("/api/media/upload", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${token}` },
+                body: formData,
+              }).then((r) => r.json());
+              setMessages((prev) => [
+                ...prev,
+                { role: "user", content: `[Captured image: ${filename}]` },
+              ]);
+              setInput("");
+              setStreaming(true);
+              const res = await fetch(sseUrl("/api/chat/stream"), {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  workspace_id: wsId,
+                  message: `Analyze this captured image: ${uploaded.url || uploaded.media_id}`,
+                }),
+              });
+              const reader = res.body?.getReader();
+              if (reader) {
+                const decoder = new TextDecoder();
+                let buffer = "";
+                let assistantContent = "";
+                setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buffer += decoder.decode(value, { stream: true });
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop() || "";
+                  for (const line of lines) {
+                    if (line.startsWith("data: ")) {
+                      try {
+                        const evt = JSON.parse(line.slice(6));
+                        if (evt.type === "token") {
+                          assistantContent += evt.content;
+                          setMessages((prev) => {
+                            const updated = [...prev];
+                            updated[updated.length - 1] = { role: "assistant", content: assistantContent };
+                            return updated;
+                          });
+                        } else if (evt.type === "done") {
+                          setMessages((prev) => {
+                            const updated = [...prev];
+                            updated[updated.length - 1] = {
+                              role: "assistant",
+                              content: assistantContent || evt.answer || "Analysis complete.",
+                              citations: evt.citations,
+                              charts: evt.charts,
+                              evidence: evt.evidence,
+                              confidence: evt.confidence,
+                            };
+                            return updated;
+                          });
+                          if (evt.evidence) setSelectedEvidence(evt.evidence);
+                        }
+                      } catch {}
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              setMessages((prev) => [...prev, { role: "assistant", content: `Upload failed: ${err}` }]);
+            }
+            setStreaming(false);
+          }}
+          onClose={() => setShowCamera(false)}
+        />
+      )}
     </AppLayout>
   );
 }

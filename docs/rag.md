@@ -1,0 +1,57 @@
+# RAG Pipeline
+
+## Retrieval Modes
+
+| Mode | Description |
+|------|-------------|
+| `vector` | Atlas `$vectorSearch` only |
+| `hybrid` | Vector + lexical fused via RRF |
+| `hybrid_rerank` | Hybrid + LLM reranking (default) |
+
+## Pipeline
+
+```
+Question
+  │
+  ├── Rewrite Query (LLM)
+  │     └── Resolve pronouns, expand abbreviations
+  │
+  ├── Multi-Query Generation (if <3 results)
+  │     └── 2 alternative search queries
+  │
+  ├── Vector Search (Atlas $vectorSearch)
+  │     └── Gemini Embedding 001 (3072d) → cosine similarity
+  │
+  ├── Lexical Search (Atlas $search)
+  │     └── BM25 text matching
+  │
+  ├── RRF Fusion (k=60)
+  │     └── Reciprocal Rank Fusion of both result sets
+  │
+  ├── LLM Reranking (optional)
+  │     └── Groq fast model scores relevance 0-10
+  │
+  └── Top-K Selection (default: 6)
+```
+
+## Embedding Backends
+
+| Backend | Provider | Dimensions | Use Case |
+|---------|----------|------------|----------|
+| Gemini 001 | Google AI | 3072 | Primary (production) |
+| Ollama | nomic-embed-text | 768 | Self-hosted fallback |
+| Local | all-MiniLM-L6-v2 | 384 | Offline/development |
+| Mock | Deterministic hash | 768 | Testing only |
+
+## Chunking Strategy
+
+- **Heading-aware**: Splits on markdown `#` headings
+- **List extraction**: Separates bullet lists into dedicated chunks
+- **Parent context**: Each chunk stores its section heading + preview
+- **Overlap**: 150 chars overlap between consecutive chunks
+- **Min size**: 40 chars (smaller fragments discarded)
+
+## Atlas Indexes
+
+- `vector_index`: vectorSearch on `embedding` field, filtered by workspace_id
+- `lexical_index`: search on `content` field, filtered by workspace_id

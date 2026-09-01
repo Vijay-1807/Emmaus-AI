@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from app.core.db import get_db
 from app.evaluation.metrics import citation_accuracy, grade_answer, mrr, ndcg_at_k, recall_at_k
+from app.observability import langfuse
 from app.providers.base import RunContext, TaskType
 from app.providers.registry import get_model_router
 from app.rag.retriever import get_retriever
@@ -68,7 +69,21 @@ async def _execute_run(
     max_cases: int,
 ) -> None:
     db = get_db()
+    lf_trace = None
     try:
+        from app.observability.langfuse import _get_client
+
+        lf_client = _get_client()
+        if lf_client is not None:
+            try:
+                lf_trace = lf_client.trace(
+                    name=f"eval_run:{run_id[:12]}",
+                    metadata={"run_id": run_id, "workspace_id": workspace_id, "retrieval_mode": retrieval_mode},
+                    tags=["evaluation", retrieval_mode],
+                )
+            except Exception:
+                lf_trace = None
+
         cases = await load_cases(case_ids, categories, max_cases)
         if not cases:
             await db.evaluation_runs.update_one(
@@ -80,7 +95,7 @@ async def _execute_run(
         router = get_model_router()
         results = []
         for case in cases:
-            result = await _evaluate_case(case, workspace_id, retrieval_mode, retriever, router)
+            result = await _evaluate_case(case, workspace_id, retrieval_mode, retriever, router, lf_trace)
             results.append(result)
         recall_scores = [r["recall_at_5"] for r in results if r["recall_at_5"] is not None]
         mrr_scores = [r["mrr"] for r in results if r["mrr"] is not None]
@@ -108,23 +123,38 @@ async def _execute_run(
                 }
             },
         )
+        if lf_trace is not None:
+            try:
+                lf_trace.update(metadata={
+                    "num_cases": len(results),
+                    "recall_at_5": avg(recall_scores),
+                    "mrr": avg(mrr_scores),
+                    "correctness": avg(correctness_scores),
+                    "faithfulness": avg(faithfulness_scores),
+                    "citation_accuracy": avg(citation_scores),
+                    "avg_latency_ms": avg(latencies),
+                })
+            except Exception:
+                pass
         logger.info("evaluation run %s completed: %s cases", run_id, len(results))
     except Exception as exc:
         logger.error("evaluation run failed: %s", exc, exc_info=True)
         await db.evaluation_runs.update_one(
             {"_id": run_id}, {"$set": {"status": "failed", "error": str(exc)[:500]}}
         )
+    finally:
+        langfuse.flush()
 
 
 async def _evaluate_case(
-    case: dict, workspace_id: str, retrieval_mode: str, retriever, router
+    case: dict, workspace_id: str, retrieval_mode: str, retriever, router, lf_trace=None
 ) -> dict:
     started = time.perf_counter()
     question = case["question"]
     expected_docs = case.get("expected_document_names") or []
-    ctx = RunContext(workspace_id=workspace_id)
+    ctx = RunContext(workspace_id=workspace_id, langfuse_trace=lf_trace)
 
-    chunks = await retriever.retrieve(workspace_id, question, mode=retrieval_mode, top_k=6)
+    chunks = await retriever.retrieve(workspace_id, question, mode=retrieval_mode, top_k=6, ctx=ctx)
     retrieved_ids = [c.chunk_id for c in chunks]
     retrieved_doc_names = [c.document_name for c in chunks]
 

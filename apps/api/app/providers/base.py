@@ -40,6 +40,7 @@ class RunContext:
     conversation_id: str | None = None
     workspace_id: str | None = None
     trace_id: str = ""
+    langfuse_trace: Any = None
     on_run: Callable[[dict[str, Any]], None] | None = None
     notes: dict[str, Any] = field(default_factory=dict)
 

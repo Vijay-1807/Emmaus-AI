@@ -165,6 +165,7 @@ async def rag_node(state: InvestigationState) -> dict:
         rewritten,
         mode=mode,
         document_ids=attachment_docs or None,
+        ctx=ctx,
     )
 
     if len(chunks) < 3 and state.get("retry_count", 0) == 0:
@@ -178,6 +179,7 @@ async def rag_node(state: InvestigationState) -> dict:
                 alt_q,
                 mode=mode,
                 document_ids=attachment_docs or None,
+                ctx=ctx,
             )
             for c in alt_chunks:
                 if c.chunk_id not in seen_ids:

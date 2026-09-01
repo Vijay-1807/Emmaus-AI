@@ -174,6 +174,7 @@ async def run_investigation(
                     tags=["investigation", retrieval_mode],
                 )
                 lf_span = trace_obj
+                run_ctx.langfuse_trace = lf_span
             except Exception:
                 lf_span = None
 

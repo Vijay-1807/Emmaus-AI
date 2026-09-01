@@ -1,9 +1,11 @@
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.config import get_settings
 from app.core.db import get_db
+from app.observability.langfuse import record_event, record_generation
 from app.rag.embeddings import get_embedding_service
 
 logger = logging.getLogger("vedax.retriever")
@@ -73,30 +75,50 @@ class Retriever:
         top_k: int | None = None,
         document_ids: list[str] | None = None,
         query_vector: list[float] | None = None,
+        ctx: Any = None,
     ) -> list[RetrievedChunk]:
+        trace = getattr(ctx, "langfuse_trace", None) if ctx else None
         top_k = top_k or self.settings.final_top_k
         vector_results: list[RetrievedChunk] = []
         lexical_results: list[RetrievedChunk] = []
 
         if mode in ("vector", "hybrid", "hybrid_rerank"):
+            t0 = time.perf_counter()
             vector_results = await self.vector_search(
                 workspace_id, query, query_vector=query_vector, document_ids=document_ids
             )
+            record_event(trace, name="vector_search", event_type="retrieval", metadata={
+                "query": query[:200], "mode": mode, "results": len(vector_results),
+                "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+            })
         if mode in ("hybrid", "hybrid_rerank"):
+            t0 = time.perf_counter()
             lexical_results = await self.lexical_search(
                 workspace_id, query, document_ids=document_ids
             )
+            record_event(trace, name="lexical_search", event_type="retrieval", metadata={
+                "query": query[:200], "mode": mode, "results": len(lexical_results),
+                "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+            })
 
         if mode == "vector":
             fused = sorted(vector_results, key=lambda c: c.vector_score, reverse=True)
         else:
             fused = rrf_fuse(vector_results, lexical_results, self.settings.rrf_k)
+            record_event(trace, name="rrf_fusion", event_type="retrieval", metadata={
+                "vector_count": len(vector_results), "lexical_count": len(lexical_results),
+                "fused_count": len(fused),
+            })
 
         if mode == "hybrid_rerank" and fused:
             from app.rag.reranker import get_reranker
 
             reranker = get_reranker()
-            fused = await reranker.rerank(query, fused, top_k=top_k)
+            fused = await reranker.rerank(query, fused, top_k=top_k, ctx=ctx)
+
+        record_event(trace, name="retrieve_final", event_type="retrieval", metadata={
+            "query": query[:200], "mode": mode, "final_count": len(fused[:top_k]),
+        })
         return fused[:top_k]
 
     async def vector_search(

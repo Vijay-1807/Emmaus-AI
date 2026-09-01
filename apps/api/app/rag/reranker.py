@@ -1,6 +1,8 @@
 import logging
+import time
 from typing import Any
 
+from app.observability.langfuse import record_event, record_generation
 from app.providers.base import RunContext, TaskType
 from app.providers.registry import get_model_router
 from app.rag.retriever import RetrievedChunk
@@ -30,12 +32,14 @@ class LLMReranker:
         top_k: int,
         ctx: RunContext | None = None,
     ) -> list[RetrievedChunk]:
+        trace = getattr(ctx, "langfuse_trace", None) if ctx else None
         candidates = chunks[:MAX_CANDIDATES]
         passages = []
         for index, chunk in enumerate(candidates, start=1):
             snippet = chunk.content[:SNIPPET_CHARS].replace("\n", " ")
             passages.append(f"[{index}] ({chunk.document_name} p.{chunk.page}): {snippet}")
         prompt = RERANK_PROMPT.format(question=query, passages="\n".join(passages))
+        t0 = time.perf_counter()
         try:
             router = get_model_router()
             data, _ = await router.complete_json(
@@ -53,6 +57,10 @@ class LLMReranker:
                             pass
         except Exception as exc:
             logger.warning("LLM rerank failed, keeping RRF order: %s", exc)
+        latency_ms = round((time.perf_counter() - t0) * 1000, 1)
+        record_generation(trace, name="rerank_llm", model="reranker", provider="llm",
+                          input_text=query[:500], output_text=str([c.rerank_score for c in candidates[:5]]),
+                          latency_ms=latency_ms, task="rerank")
         return sorted(candidates, key=lambda c: c.best_score, reverse=True)[:top_k]
 
 

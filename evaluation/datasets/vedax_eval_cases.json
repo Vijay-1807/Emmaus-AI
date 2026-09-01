@@ -1,0 +1,86 @@
+[
+  {
+    "id": "direct-revenue-q3",
+    "question": "What was total revenue in Q3?",
+    "expected_answer": "Total Q3 revenue was $2.4M.",
+    "expected_document_names": ["quarterly_report.pdf"],
+    "category": "direct"
+  },
+  {
+    "id": "multi-hop-decline-driver",
+    "question": "Which region contributed most to the Q3 revenue decline and by how much?",
+    "expected_answer": "The South region contributed most to the decline, roughly a 63% share of the total drop.",
+    "expected_document_names": ["quarterly_report.pdf", "sales.xlsx"],
+    "category": "multi_hop"
+  },
+  {
+    "id": "table-headcount",
+    "question": "How many employees were hired in each department?",
+    "expected_answer": "Engineering hired 12, Sales 8, Support 5.",
+    "expected_document_names": ["headcount.xlsx"],
+    "category": "table"
+  },
+  {
+    "id": "handwriting-action-items",
+    "question": "List the action items from the handwritten meeting notes.",
+    "expected_answer": "Action items: send the revised quote, schedule the vendor call, and update the roadmap.",
+    "expected_document_names": ["notes.jpg"],
+    "category": "handwriting"
+  },
+  {
+    "id": "chart-trend",
+    "question": "What changed between the two periods shown in the sales chart?",
+    "expected_answer": "Revenue fell from $3.1M to $2.4M, driven mainly by the South region.",
+    "expected_document_names": ["sales_chart.png"],
+    "category": "image"
+  },
+  {
+    "id": "unanswerable-competitor",
+    "question": "What is Competitor X's market share?",
+    "expected_answer": "Insufficient evidence: the documents do not mention Competitor X's market share.",
+    "expected_document_names": [],
+    "category": "unanswerable"
+  },
+  {
+    "id": "retrieval-policy-terms",
+    "question": "What are the termination conditions in the contract?",
+    "expected_answer": "Either party may terminate with 30 days written notice; immediate termination for material breach.",
+    "expected_document_names": ["contract.pdf"],
+    "category": "retrieval_heavy"
+  },
+  {
+    "id": "mixed-audio-chart",
+    "question": "Summarize the risks mentioned in the recorded briefing.",
+    "expected_answer": "Top risks: supply delays, currency exposure, and a delayed product launch.",
+    "expected_document_names": ["briefing.m4a"],
+    "category": "mixed"
+  },
+  {
+    "id": "direct-definition",
+    "question": "How does the report define 'active user'?",
+    "expected_answer": "An active user is any account with at least one session in the trailing 30 days.",
+    "expected_document_names": ["quarterly_report.pdf"],
+    "category": "direct"
+  },
+  {
+    "id": "ambiguous-growth",
+    "question": "Did growth improve?",
+    "expected_answer": "Growth improved in the North and West regions but declined in the South.",
+    "expected_document_names": ["sales.xlsx"],
+    "category": "ambiguous"
+  },
+  {
+    "id": "multi-hop-cost-revenue",
+    "question": "Compare Q3 marketing spend with the revenue it generated in the same quarter.",
+    "expected_answer": "Marketing spent $300K in Q3 against $2.4M revenue, about 12.5% of revenue.",
+    "expected_document_names": ["quarterly_report.pdf", "sales.xlsx"],
+    "category": "multi_hop"
+  },
+  {
+    "id": "table-margin",
+    "question": "Which product had the highest gross margin?",
+    "expected_answer": "Product A had the highest gross margin at 61%.",
+    "expected_document_names": ["products.xlsx"],
+    "category": "table"
+  }
+]

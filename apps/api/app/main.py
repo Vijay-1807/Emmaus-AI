@@ -1,0 +1,112 @@
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from app.agents.graph import get_graph
+from app.api import (
+    auth,
+    chat,
+    datasets,
+    documents,
+    evaluation,
+    investigations,
+    media,
+    observability,
+    telegram,
+    workspaces,
+)
+from app.core.config import get_settings
+from app.core.db import connect_db, close_db
+from app.core.logging import configure_logging
+from app.providers.registry import get_model_router
+from app.rag.embeddings import get_embedding_service
+
+configure_logging()
+logger = logging.getLogger("vedax.main")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = get_settings()
+    await connect_db()
+    router = get_model_router()
+    logger.info("providers: %s", list(router.providers))
+    try:
+        get_graph()
+        logger.info("langgraph orchestrator compiled")
+    except Exception as exc:
+        logger.error("failed to compile graph: %s", exc)
+    embedding_service = get_embedding_service()
+    health = await embedding_service.health_check()
+    logger.info("embedding backend: %s (ok=%s)", health.get("backend"), health.get("ok"))
+    yield
+    close_db()
+    logger.info("shutdown complete")
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    app = FastAPI(
+        title="VedaX AI API",
+        description="Multimodal Agentic Knowledge & Analysis Platform",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    try:
+        from pathlib import Path
+
+        Path("media").mkdir(exist_ok=True)
+        app.mount("/media", StaticFiles(directory="media"), name="media")
+    except Exception:
+        pass
+    prefix = settings.api_prefix
+    app.include_router(auth.router, prefix=prefix)
+    app.include_router(workspaces.router, prefix=prefix)
+    app.include_router(documents.router, prefix=prefix)
+    app.include_router(datasets.router, prefix=prefix)
+    app.include_router(media.router, prefix=prefix)
+    app.include_router(chat.router, prefix=prefix)
+    app.include_router(investigations.router, prefix=prefix)
+    app.include_router(evaluation.router, prefix=prefix)
+    app.include_router(observability.router, prefix=prefix)
+    app.include_router(telegram.router, prefix=prefix)
+
+    @app.get(f"{prefix}/health")
+    async def health():
+        router = get_model_router()
+        return {
+            "status": "ok",
+            "environment": settings.environment,
+            "providers": router.describe(),
+        }
+
+    @app.get(f"{prefix}/health/detailed")
+    async def health_detailed():
+        router = get_model_router()
+        embedding_service = get_embedding_service()
+        embedding_health = await embedding_service.health_check()
+        from app.rag.retriever import get_retriever
+
+        retriever_health = await get_retriever().health()
+        return {
+            "status": "ok",
+            "providers": router.describe(),
+            "embeddings": embedding_health,
+            "retrieval": retriever_health,
+            "storage": {"mode": settings.media_storage},
+        }
+
+    return app
+
+
+app = create_app()

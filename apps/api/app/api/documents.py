@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from app.api.deps import get_current_user, require_workspace
+from app.core.db import get_db
 from app.core.config import get_settings
 from app.models.schemas import DocumentOut
 from app.services import document_service
@@ -73,6 +74,43 @@ async def get_document(
     if not document:
         raise HTTPException(status_code=404, detail="document not found")
     return to_out(document)
+
+
+@router.post("/copy", status_code=200)
+async def copy_document(
+    body: dict,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Copy a document (and its chunks) into another workspace for a new chat."""
+    source_workspace_id = body.get("source_workspace_id")
+    document_id = body.get("document_id")
+    target_workspace_id = body.get("target_workspace_id")
+    if not source_workspace_id or not document_id or not target_workspace_id:
+        raise HTTPException(status_code=422, detail="source_workspace_id, document_id, and target_workspace_id are required")
+    await require_workspace(source_workspace_id, user)
+    await require_workspace(target_workspace_id, user)
+    db = get_db()
+    doc = await db.documents.find_one({"_id": document_id, "workspace_id": source_workspace_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="document not found in source workspace")
+    from uuid import uuid4
+    already = await db.documents.find_one({"workspace_id": target_workspace_id, "media.public_id": doc.get("media", {}).get("public_id")})
+    if already:
+        return {"document_id": already["_id"], "already_copied": True}
+    import copy as _copy
+    new_id = uuid4().hex
+    new_doc = _copy.deepcopy(doc)
+    new_doc["_id"] = new_id
+    new_doc["workspace_id"] = target_workspace_id
+    await db.documents.insert_one(new_doc)
+    chunks = [c async for c in db.document_chunks.find({"document_id": document_id})]
+    if chunks:
+        for chunk in chunks:
+            chunk["_id"] = uuid4().hex
+            chunk["document_id"] = new_id
+            chunk["workspace_id"] = target_workspace_id
+        await db.document_chunks.insert_many(chunks)
+    return {"document_id": new_id, "already_copied": False}
 
 
 @router.delete("/{document_id}", status_code=204)

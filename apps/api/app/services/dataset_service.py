@@ -110,6 +110,8 @@ async def _process_dataset(dataset_id: str, workspace_id: str, filename: str, da
         sample = records[:25]
         summary = build_dataset_text_summary(filename, df)
         chunks = chunk_markdown_text(summary)
+        if not chunks:
+            raise ValueError("no searchable content could be extracted from this dataset")
         embedding_service = get_embedding_service()
         num_chunks = await index_chunks(
             workspace_id,

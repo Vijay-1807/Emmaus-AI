@@ -116,12 +116,14 @@ async def _process_document(
                             "headings": [],
                         }
                     )
-            pages = [
-                p if isinstance(p, dict) else {"number": p.number, "text": p.text, "headings": p.headings}
-                for p in parsed.pages
-            ]
+        pages = [
+            p if isinstance(p, dict) else {"number": p.number, "text": p.text, "headings": p.headings}
+            for p in parsed.pages
+        ]
 
         chunks = chunk_document(pages)
+        if not chunks:
+            raise ValueError("no searchable text could be extracted from this document")
         embedding_service = get_embedding_service()
         num_chunks = await index_chunks(
             workspace_id,

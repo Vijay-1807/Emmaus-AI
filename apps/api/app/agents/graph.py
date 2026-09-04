@@ -44,7 +44,7 @@ Evidence collected:
 Respond ONLY with JSON:
 {{"sufficient": <true|false>, "confidence": <0.0-1.0>, "reasoning": "<one sentence>", "missing": "<what is missing, or empty>"}}"""
 
-GENERATE_SYSTEM = """You are VedaX AI, a rigorous multimodal analyst.
+GENERATE_SYSTEM = """You are Emmaus AI, a rigorous multimodal analyst.
 
 Rules:
 - Ground every factual claim in the numbered evidence below and cite as [1], [2]...
@@ -52,7 +52,9 @@ Rules:
 - Include key numbers exactly as they appear in the evidence.
 - If evidence is insufficient for part of the question, say so explicitly instead of guessing.
 - Be direct and structured. Use short paragraphs or bullets.
-- End with a line: "Confidence: <low|medium|high> — <one short reason>"."""
+- Use clean, restrained Markdown and ordinary hyphens. Avoid decorative Unicode symbols and em dashes.
+- State the answer once. Do not add a separate section that repeats the same answer.
+- End with a line: "Confidence: <low|medium|high> - <one short reason>"."""
 
 
 async def _workspace_inventory(workspace_id: str) -> tuple[list[dict], list[dict]]:
@@ -315,13 +317,12 @@ async def fuse_node(state: InvestigationState) -> dict:
     chunks = state.get("retrieved_chunks") or []
     ws_id = state["workspace_id"]
     doc_media: dict[str, str | None] = {}
-    for chunk in chunks:
-        doc_id = chunk.get("document_id")
-        if doc_id and doc_id not in doc_media:
-            document = await db.documents.find_one(
-                {"_id": doc_id, "workspace_id": ws_id}, {"media": 1}
-            )
-            doc_media[doc_id] = (document.get("media") or {}).get("url") if document else None
+    unique_doc_ids = list({chunk.get("document_id") for chunk in chunks if chunk.get("document_id")})
+    if unique_doc_ids:
+        async for document in db.documents.find(
+            {"_id": {"$in": unique_doc_ids}, "workspace_id": ws_id}, {"_id": 1, "media": 1}
+        ):
+            doc_media[document["_id"]] = (document.get("media") or {}).get("url")
     for chunk in chunks:
         evidence.append(
             {
@@ -487,10 +488,9 @@ async def generate_node(state: InvestigationState) -> dict:
     router = get_model_router()
     answer = ""
     try:
-        stream = await router.stream(
+        async for piece in router.stream(
             messages, task=TaskType.REASONING, temperature=0.2, max_tokens=3000, ctx=ctx
-        )
-        async for piece in stream:
+        ):
             answer += piece
             events.emit({"type": "token", "text": piece})
     except Exception as exc:

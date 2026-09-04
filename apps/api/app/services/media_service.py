@@ -38,7 +38,17 @@ def _mime_for(filename: str) -> str:
         return "application/vnd.ms-excel"
     if lower.endswith(".docx"):
         return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    if lower.endswith((".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm")):
+    if lower.endswith(".wav"):
+        return "audio/wav"
+    if lower.endswith(".mp3"):
+        return "audio/mpeg"
+    if lower.endswith(".m4a"):
+        return "audio/mp4"
+    if lower.endswith(".ogg"):
+        return "audio/ogg"
+    if lower.endswith(".flac"):
+        return "audio/flac"
+    if lower.endswith(".webm"):
         return "audio/webm"
     return "application/octet-stream"
 
@@ -60,6 +70,13 @@ class MediaService:
             mode = "cloudinary" if self.settings.has_cloudinary else "local"
         self.mode = mode
         self._cloudinary_configured = False
+        # Once Cloudinary rejects us for auth/permissions, stop trying —
+        # every upload would warn + retry otherwise.
+        self._cloudinary_dead = False
+
+    @property
+    def cloudinary_usable(self) -> bool:
+        return self.mode == "cloudinary" and not self._cloudinary_dead
 
     def _configure_cloudinary(self) -> None:
         if self._cloudinary_configured:
@@ -82,32 +99,53 @@ class MediaService:
         resource_kind: str,
     ) -> StoredAsset:
         public_id = f"{workspace_id}/{uuid.uuid4().hex}-{filename}"
-        if self.mode == "cloudinary":
+        if self.mode == "cloudinary" and not self._cloudinary_dead:
             return await self._upload_cloudinary(data, filename, public_id, resource_kind)
         return await self._upload_local(data, filename, public_id, resource_kind)
 
     async def _upload_cloudinary(
         self, data: bytes, filename: str, public_id: str, resource_kind: str
     ) -> StoredAsset:
-        import cloudinary.uploader
+        try:
+            import re
 
-        self._configure_cloudinary()
-        resource_type = {"image": "image", "audio": "video", "file": "raw"}[resource_kind]
-        result = await asyncio.to_thread(
-            cloudinary.uploader.upload,
-            data,
-            public_id=public_id,
-            resource_type=resource_type,
-            folder="vedax",
-            use_filename=False,
-            unique_filename=False,
-        )
-        return StoredAsset(
-            public_id=result["public_id"],
-            url=result["secure_url"],
-            resource_type=resource_type,
-            mode="cloudinary",
-        )
+            import cloudinary.uploader
+
+            self._configure_cloudinary()
+            # Cloudinary rejects spaces/parens/& in public IDs — slugify them.
+            public_id = "/".join(
+                re.sub(r"[^A-Za-z0-9_.-]", "_", part) for part in public_id.split("/")
+            )
+            resource_type = {"image": "image", "audio": "video", "file": "raw"}[resource_kind]
+            result = await asyncio.to_thread(
+                cloudinary.uploader.upload,
+                data,
+                public_id=public_id,
+                resource_type=resource_type,
+                folder="vedax",
+                use_filename=False,
+                unique_filename=False,
+            )
+            return StoredAsset(
+                public_id=result["public_id"],
+                url=result["secure_url"],
+                resource_type=resource_type,
+                mode="cloudinary",
+            )
+        except Exception as exc:
+            message = str(exc)
+            if "forbidden" in message.lower() or "permission" in message.lower() or "unauthorized" in message.lower():
+                self._cloudinary_dead = True
+                logger.warning(
+                    "Cloudinary rejected uploads (%s). Fix: Cloudinary Dashboard → "
+                    "Settings → API Keys → use a key with Upload(create) permission, "
+                    "or clear Cloudinary keys to use local storage. "
+                    "Falling back to local storage for this and future uploads.",
+                    message[:200],
+                )
+            else:
+                logger.warning("Cloudinary upload failed (%s), falling back to local storage", message[:200])
+            return await self._upload_local(data, filename, public_id, resource_kind)
 
     async def _upload_local(
         self, data: bytes, filename: str, public_id: str, resource_kind: str

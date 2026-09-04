@@ -5,7 +5,6 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-import google.generativeai as genai
 import httpx
 
 from app.core.config import get_settings
@@ -65,6 +64,29 @@ class OllamaEmbedder:
         return out
 
 
+class JinaEmbedder:
+    def __init__(self, api_key: str, model: str = "jina-embeddings-v5-omni-small", timeout: float = 60):
+        self.api_key = api_key
+        self.model = model
+        self.timeout = timeout
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        out: list[list[float]] = []
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            for start in range(0, len(texts), 32):
+                batch = texts[start : start + 32]
+                response = await client.post(
+                    "https://api.jina.ai/v1/embeddings",
+                    headers=headers,
+                    json={"model": self.model, "input": batch},
+                )
+                response.raise_for_status()
+                data = response.json()["data"]
+                out.extend(item["embedding"] for item in data)
+        return out
+
+
 class LocalEmbedder:
     def __init__(self, model_name: str):
         from sentence_transformers import SentenceTransformer
@@ -82,6 +104,9 @@ class GeminiEmbedder:
     def __init__(
         self, api_key: str, model: str = "gemini-embedding-001", timeout: float = 60
     ):
+        import google.generativeai as genai
+
+        self.genai = genai
         genai.configure(api_key=api_key)
         self.model = model
         self.timeout = timeout
@@ -90,9 +115,9 @@ class GeminiEmbedder:
         out: list[list[float]] = []
         for text in texts:
             result = await asyncio.to_thread(
-                lambda: genai.embed_content(
-                    model=self.model,
-                    content=text,
+                lambda t=text: self.genai.embed_content(
+                    model=f"models/{self.model}",
+                    content=t,
                     task_type="retrieval_document",
                 )
             )
@@ -140,23 +165,45 @@ class EmbeddingService:
         is_prod = self.settings.environment == "production"
 
         if choice == "gemini" or (choice == "auto" and self.settings.has_gemini):
-            gemini = GeminiEmbedder(
-                self.settings.gemini_api_key,
-                self.settings.gemini_embedding_model,
-            )
-            if await self._try_backend(gemini, "gemini"):
-                self._backend = gemini
-                self._backend_name = "gemini"
-                self._descriptor = EmbeddingDescriptor(
-                    backend="gemini",
-                    model=self.settings.gemini_embedding_model,
-                    dimensions=self.settings.gemini_embedding_dimensions,
-                    provider="google",
+            # Try gemini-embedding-2 first (newer, free tier), then fall back to configured model
+            for model_name in ("gemini-embedding-2", self.settings.gemini_embedding_model):
+                gemini = GeminiEmbedder(
+                    self.settings.gemini_api_key,
+                    model_name,
                 )
-                return self._backend
+                if await self._try_backend(gemini, f"gemini/{model_name}"):
+                    self._backend = gemini
+                    self._backend_name = "gemini"
+                    self._descriptor = EmbeddingDescriptor(
+                        backend="gemini",
+                        model=model_name,
+                        dimensions=self.settings.gemini_embedding_dimensions,
+                        provider="google",
+                    )
+                    return self._backend
             if is_prod:
                 raise RuntimeError(
                     "Gemini Embedding 2 unavailable and no fallback allowed in production"
+                )
+
+        if choice == "jina" or (choice == "auto" and self.settings.has_jina):
+            jina = JinaEmbedder(
+                self.settings.embedding_api_key,
+                self.settings.embedding_model,
+            )
+            if await self._try_backend(jina, "jina"):
+                self._backend = jina
+                self._backend_name = "jina"
+                self._descriptor = EmbeddingDescriptor(
+                    backend="jina",
+                    model=self.settings.embedding_model,
+                    dimensions=self.settings.embedding_dimensions,
+                    provider="jina",
+                )
+                return self._backend
+            if is_prod and choice == "jina":
+                raise RuntimeError(
+                    "Jina embeddings unavailable and no fallback allowed in production"
                 )
 
         if choice == "ollama" or (choice == "auto" and self.settings.has_ollama):
@@ -199,7 +246,7 @@ class EmbeddingService:
         if is_prod:
             raise RuntimeError(
                 "No embedding backend available in production. "
-                "Configure GEMINI_API_KEY or OLLAMA_API_KEY."
+                "Configure JINA_API_KEY or GEMINI_API_KEY."
             )
 
         logger.warning(

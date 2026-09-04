@@ -37,7 +37,8 @@ class LLMReranker:
         passages = []
         for index, chunk in enumerate(candidates, start=1):
             snippet = chunk.content[:SNIPPET_CHARS].replace("\n", " ")
-            passages.append(f"[{index}] ({chunk.document_name} p.{chunk.page}): {snippet}")
+            page_str = f" p.{chunk.page}" if chunk.page is not None else ""
+            passages.append(f"[{index}] ({chunk.document_name}{page_str}): {snippet}")
         prompt = RERANK_PROMPT.format(question=query, passages="\n".join(passages))
         t0 = time.perf_counter()
         try:

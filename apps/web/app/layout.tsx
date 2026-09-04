@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "VedaX AI",
+  title: "Emmaus AI",
   description: "Multimodal Agentic Knowledge & Analysis Platform",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

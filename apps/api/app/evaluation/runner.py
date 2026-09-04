@@ -210,6 +210,41 @@ async def _evaluate_case(
     }
 
 
+async def seed_from_investigations(workspace_id: str, limit: int = 10) -> int:
+    """Turn recent chat investigations into eval cases (question + answer + cited docs)."""
+    db = get_db()
+    existing = {
+        c["question"]
+        async for c in db.evaluation_cases.find({}, {"question": 1})
+        if c.get("question")
+    }
+    cursor = (
+        db.investigations.find({"workspace_id": workspace_id})
+        .sort("created_at", -1)
+        .limit(max(1, min(limit, 25)))
+    )
+    cases = []
+    async for inv in cursor:
+        question = (inv.get("question") or "").strip()
+        answer = (inv.get("answer") or "").strip()
+        if not question or not answer or question in existing:
+            continue
+        doc_names: list[str] = []
+        for c in inv.get("citations", []) or []:
+            name = c.get("document_name") if isinstance(c, dict) else None
+            if name and name not in doc_names:
+                doc_names.append(name)
+        cases.append(
+            {
+                "question": question,
+                "expected_answer": answer[:2000],
+                "expected_document_names": doc_names,
+                "category": "history",
+            }
+        )
+    return await seed_cases(cases)
+
+
 async def list_runs(workspace_id: str, limit: int = 20) -> list[dict]:
     db = get_db()
     query = {"workspace_id": workspace_id}

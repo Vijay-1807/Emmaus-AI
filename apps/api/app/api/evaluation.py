@@ -13,6 +13,7 @@ def to_summary(run: dict) -> EvalRunSummary:
         id=run["_id"],
         config=run.get("config", {}),
         status=run["status"],
+        error=run.get("error"),
         num_cases=run.get("num_cases", 0),
         retrieval_recall_at_5=run.get("retrieval_recall_at_5"),
         retrieval_mrr=run.get("retrieval_mrr"),
@@ -53,6 +54,23 @@ async def add_case(payload: CaseIn, user: dict = Depends(get_current_user)) -> d
     if not inserted:
         raise HTTPException(status_code=400, detail="case already exists")
     return {"ok": True}
+
+
+class SeedFromHistoryIn(BaseModel):
+    workspace_id: str
+    limit: int = 10
+
+
+@router.post("/seed-from-history")
+async def seed_from_history(payload: SeedFromHistoryIn, user: dict = Depends(get_current_user)) -> dict:
+    await require_workspace(payload.workspace_id, user)
+    inserted = await runner.seed_from_investigations(payload.workspace_id, payload.limit)
+    if not inserted:
+        raise HTTPException(
+            status_code=400,
+            detail="no past investigations to seed from (or all already seeded)",
+        )
+    return {"ok": True, "inserted": inserted}
 
 
 @router.post("/run", response_model=EvalRunSummary, status_code=201)

@@ -4,14 +4,14 @@
 
 | TaskType | Purpose | Primary Provider | Fallback Chain |
 |----------|---------|-----------------|----------------|
-| REASONING | Final answer generation | Ollama (gpt-oss:120b) | Groq → Cerebras → Mock |
-| CLASSIFY | Intent routing | Groq (llama-3.1-8b-instant) | Ollama → Cerebras → Mock |
-| REWRITE | Query rewriting | Groq (llama-3.1-8b-instant) | Ollama → Cerebras → Mock |
-| RERANK | Relevance scoring | Groq (llama-3.1-8b-instant) | Ollama → Cerebras → Mock |
-| VERIFY | Evidence sufficiency | Groq (llama-3.1-8b-instant) | Ollama → Cerebras → Mock |
-| VISION | Image analysis | Ollama (gemma4:31b) | Mock |
-| EXTRACTION | Structured output | Groq (llama-3.1-8b-instant) | Ollama → Cerebras → Mock |
-| EVALUATION | Answer grading | Groq (llama-3.1-8b-instant) | Ollama → Cerebras → Mock |
+| REASONING | Final answer generation | Groq (openai/gpt-oss-120b) | Ollama → Mock |
+| CLASSIFY | Intent routing | Groq (openai/gpt-oss-20b) | Ollama → Mock |
+| REWRITE | Query rewriting | Groq (openai/gpt-oss-20b) | Ollama → Mock |
+| RERANK | Relevance scoring | Groq (openai/gpt-oss-20b) | Ollama → Mock |
+| VERIFY | Evidence sufficiency | Groq (openai/gpt-oss-20b) | Ollama → Mock |
+| VISION | Image analysis | Groq (qwen/qwen3.6-27b) | Ollama (gemma4:31b) → Mock |
+| EXTRACTION | Structured output | Groq (openai/gpt-oss-20b) | Ollama → Mock |
+| EVALUATION | Answer grading | Groq (openai/gpt-oss-20b) | Ollama → Mock |
 
 ## Fallback Behavior
 
@@ -27,10 +27,10 @@ In production, if all real providers fail, the system degrades to mock responses
 
 | Provider | Model | Input $/MTok | Output $/MTok |
 |----------|-------|-------------|---------------|
-| Groq | llama-3.3-70b-versatile | $0.59 | $0.79 |
-| Groq | llama-3.1-8b-instant | $0.05 | $0.08 |
-| Cerebras | llama-3.3-70b | $0.85 | $1.20 |
-| Ollama | gpt-oss:120b | $0.50 | $1.50 |
+| Groq | openai/gpt-oss-120b | $0.15 | $0.60 |
+| Groq | openai/gpt-oss-20b | $0.075 | $0.30 |
+| Groq | qwen/qwen3.6-27b (vision) | $0.60 | $3.00 |
+| Ollama | gpt-oss:120b | $0.00 | $0.00 |
 
 ## Retry Logic
 

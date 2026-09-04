@@ -179,11 +179,18 @@ async def run_investigation(
                 lf_span = None
 
         async def pump() -> None:
-            async for update in graph.astream(state, stream_mode="updates"):
-                for node_name in update:
-                    merged.update(update[node_name] or {})
-            queue.put_nowait(None)
+            nonlocal pump_error
+            try:
+                async for update in graph.astream(state, stream_mode="updates"):
+                    for node_name in update:
+                        merged.update(update[node_name] or {})
+            except Exception as exc:
+                logger.error("graph pump failed: %s", exc)
+                pump_error = exc
+            finally:
+                queue.put_nowait(None)
 
+        pump_error: Exception | None = None
         pump_task = asyncio.create_task(pump())
         while True:
             event = await queue.get()
@@ -191,10 +198,17 @@ async def run_investigation(
                 break
             yield event
         await pump_task
+        if pump_error is not None:
+            raise pump_error
 
         final_state = merged
         answer = final_state.get("answer", "")
         latency_ms = round((time.perf_counter() - started) * 1000, 1)
+        citations = final_state.get("citations", [])
+        charts = final_state.get("charts", [])
+        evidence = final_state.get("evidence", [])
+        capabilities = final_state.get("capabilities", [])
+        confidence = final_state.get("confidence")
 
         if lf_span is not None:
             try:
@@ -218,12 +232,6 @@ async def run_investigation(
                 )
             except Exception:
                 pass
-
-        citations = final_state.get("citations", [])
-        charts = final_state.get("charts", [])
-        evidence = final_state.get("evidence", [])
-        capabilities = final_state.get("capabilities", [])
-        confidence = final_state.get("confidence")
 
         await db.investigations.update_one(
             {"_id": investigation_id},

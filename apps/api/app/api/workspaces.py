@@ -67,3 +67,19 @@ async def delete_workspace(workspace_id: str, user: dict = Depends(get_current_u
     deleted = await workspace_service.delete_workspace(workspace_id, user["_id"])
     if not deleted:
         raise HTTPException(status_code=404, detail="workspace not found")
+
+
+@router.post("/{workspace_id}/clear")
+async def clear_workspace(workspace_id: str, user: dict = Depends(get_current_user)) -> dict:
+    summary = await workspace_service.clear_workspace_data(workspace_id, user["_id"])
+    if summary is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    return {"message": "workspace storage cleared successfully", "details": summary}
+
+
+@router.get("/{workspace_id}/storage-summary")
+async def get_storage_summary(workspace_id: str, user: dict = Depends(get_current_user)) -> dict:
+    summary = await workspace_service.get_workspace_storage_summary(workspace_id, user["_id"])
+    if summary is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    return summary

@@ -70,7 +70,7 @@ async def _issue_tokens(user: dict) -> dict:
         "access_token": access,
         "refresh_token": refresh,
         "token_type": "bearer",
-        "user": {"id": user["_id"], "email": user["email"], "name": user["name"], "created_at": user["created_at"]},
+        "user": {"id": user["_id"], "email": user["email"], "name": user["name"], "is_anonymous": user.get("is_anonymous", False), "created_at": user["created_at"]},
     }
 
 
@@ -89,7 +89,7 @@ async def create_anonymous_session() -> dict:
     anon_id = f"anon_{uuid.uuid4().hex}"
     user = {
         "_id": anon_id,
-        "email": f"{anon_id}@anonymous.local",
+        "email": f"{anon_id}@guest.vedax.ai",
         "name": "Guest",
         "password_hash": "",
         "is_anonymous": True,

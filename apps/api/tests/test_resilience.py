@@ -82,63 +82,74 @@ class RecoveringProvider:
 class TestProviderFallback:
     def test_fallback_to_mock_on_all_failures(self):
         settings = MagicMock()
-        settings.cerebras_chat_model = "gpt-oss-120b"
-        settings.cerebras_vision_model = "gemma-4-31b"
         settings.groq_chat_model = "openai/gpt-oss-120b"
+        settings.groq_fast_model = "openai/gpt-oss-20b"
         settings.ollama_chat_model = "gpt-oss:120b"
 
         providers = {
-            "cerebras": FailingProvider(),
             "groq": FailingProvider(),
             "ollama": FailingProvider(),
             "mock": MockProvider(),
         }
         router = ModelRouter(providers, settings)
         chain = router._chain(TaskType.REASONING)
-        assert len(chain) == 4
+        assert len(chain) == 3
         assert chain[-1][0].name == "mock"
 
     def test_reasoning_chain_order(self):
         settings = MagicMock()
-        settings.cerebras_chat_model = "gpt-oss-120b"
         settings.groq_chat_model = "openai/gpt-oss-120b"
+        settings.groq_fast_model = "openai/gpt-oss-20b"
         settings.ollama_chat_model = "gpt-oss:120b"
 
         providers = {
-            "cerebras": MockProvider(),
             "groq": MockProvider(),
             "ollama": MockProvider(),
             "mock": MockProvider(),
         }
         router = ModelRouter(providers, settings)
         chain = router._chain(TaskType.REASONING)
-        names = [p.name for p, _ in chain]
-        assert names == ["cerebras", "groq", "ollama", "mock"]
+        assert [model for _, model in chain] == [
+            "openai/gpt-oss-120b", "gpt-oss:120b", "mock-reasoning"
+        ]
 
-    def test_vision_chain_uses_cerebras(self):
+    def test_vision_chain_uses_ollama(self):
         settings = MagicMock()
-        settings.cerebras_vision_model = "gemma-4-31b"
+        settings.ollama_vision_model = "gemma4:31b"
 
         providers = {
-            "cerebras": MockProvider(),
+            "ollama": MockProvider(),
             "mock": MockProvider(),
         }
         router = ModelRouter(providers, settings)
         chain = router._chain(TaskType.VISION)
-        assert chain[0][0].name == "cerebras"
-        assert chain[0][1] == "gemma-4-31b"
+        assert chain[0][1] == "gemma4:31b"
+
+    def test_vision_chain_prefers_groq(self):
+        settings = MagicMock()
+        settings.groq_vision_model = "qwen/qwen3.6-27b"
+        settings.ollama_vision_model = "gemma4:31b"
+
+        providers = {
+            "groq": MockProvider(),
+            "ollama": MockProvider(),
+            "mock": MockProvider(),
+        }
+        router = ModelRouter(providers, settings)
+        chain = router._chain(TaskType.VISION)
+        assert [model for _, model in chain] == [
+            "qwen/qwen3.6-27b", "gemma4:31b", "mock-vision"
+        ]
 
 
 @pytest.mark.asyncio
 async def test_router_complete_with_all_failing_providers():
     settings = MagicMock()
-    settings.cerebras_chat_model = "gpt-oss-120b"
-    settings.cerebras_vision_model = "gemma-4-31b"
     settings.groq_chat_model = "openai/gpt-oss-120b"
+    settings.groq_fast_model = "llama-3.1-8b-instant"
     settings.ollama_chat_model = "gpt-oss:120b"
 
     providers = {
-        "cerebras": FailingProvider(),
         "groq": FailingProvider(),
         "ollama": FailingProvider(),
         "mock": MockProvider(),
@@ -148,19 +159,17 @@ async def test_router_complete_with_all_failing_providers():
         [{"role": "user", "content": "test"}], task=TaskType.REASONING
     )
     assert result.provider == "mock"
-    assert result.fallback_used is False  # mock is first real success
+    assert result.fallback_used is True
 
 
 @pytest.mark.asyncio
 async def test_router_stream_fallback():
     settings = MagicMock()
-    settings.cerebras_chat_model = "gpt-oss-120b"
-    settings.cerebras_vision_model = "gemma-4-31b"
     settings.groq_chat_model = "openai/gpt-oss-120b"
+    settings.groq_fast_model = "llama-3.1-8b-instant"
     settings.ollama_chat_model = "gpt-oss:120b"
 
     providers = {
-        "cerebras": FailingProvider(),
         "groq": FailingProvider(),
         "ollama": FailingProvider(),
         "mock": MockProvider(),
@@ -175,12 +184,11 @@ async def test_router_stream_fallback():
 @pytest.mark.asyncio
 async def test_router_all_providers_fail_raises():
     settings = MagicMock()
-    settings.cerebras_chat_model = "gpt-oss-120b"
     settings.groq_chat_model = "openai/gpt-oss-120b"
+    settings.groq_fast_model = "llama-3.1-8b-instant"
     settings.ollama_chat_model = "gpt-oss:120b"
 
     providers = {
-        "cerebras": FailingProvider(),
         "groq": FailingProvider(),
         "ollama": FailingProvider(),
     }
@@ -194,12 +202,11 @@ async def test_router_all_providers_fail_raises():
 @pytest.mark.asyncio
 async def test_router_stream_all_fail_raises():
     settings = MagicMock()
-    settings.cerebras_chat_model = "gpt-oss-120b"
     settings.groq_chat_model = "openai/gpt-oss-120b"
+    settings.groq_fast_model = "llama-3.1-8b-instant"
     settings.ollama_chat_model = "gpt-oss:120b"
 
     providers = {
-        "cerebras": FailingProvider(),
         "groq": FailingProvider(),
         "ollama": FailingProvider(),
     }
@@ -424,7 +431,7 @@ class TestUploadResilience:
         response = await client.post(
             "/api/media/upload",
             files={"file": ("empty.txt", b"", "text/plain")},
-            data={"workspace_id": workspace["_id"], "kind": "document"},
+            params={"workspace_id": workspace["id"]},
             headers=auth_headers,
         )
         assert response.status_code in (200, 201, 400, 422)
@@ -435,7 +442,7 @@ class TestUploadResilience:
         response = await client.post(
             "/api/media/upload",
             files={"file": (long_name, b"content", "text/plain")},
-            data={"workspace_id": workspace["_id"], "kind": "document"},
+            params={"workspace_id": workspace["id"]},
             headers=auth_headers,
         )
         assert response.status_code in (200, 201, 400, 422)
@@ -446,7 +453,7 @@ class TestUploadResilience:
 
 class TestCostEstimation:
     def test_known_provider_cost(self):
-        cost = estimate_cost_usd("groq", "llama-3.1-8b-instant", 1000, 500)
+        cost = estimate_cost_usd("groq", "openai/gpt-oss-20b", 1000, 500)
         assert cost > 0
 
     def test_unknown_provider_zero_cost(self):
@@ -454,7 +461,7 @@ class TestCostEstimation:
         assert cost == 0.0
 
     def test_zero_tokens(self):
-        cost = estimate_cost_usd("groq", "llama-3.3-70b-versatile", 0, 0)
+        cost = estimate_cost_usd("groq", "openai/gpt-oss-120b", 0, 0)
         assert cost == 0.0
 
 
@@ -501,12 +508,11 @@ class TestConcurrentFailures:
     @pytest.mark.asyncio
     async def test_parallel_requests_with_failing_provider(self):
         settings = MagicMock()
-        settings.cerebras_chat_model = "gpt-oss-120b"
         settings.groq_chat_model = "openai/gpt-oss-120b"
+        settings.groq_fast_model = "openai/gpt-oss-20b"
         settings.ollama_chat_model = "gpt-oss:120b"
 
         providers = {
-            "cerebras": FailingProvider(),
             "groq": FailingProvider(),
             "mock": MockProvider(),
         }
@@ -523,12 +529,11 @@ class TestConcurrentFailures:
     @pytest.mark.asyncio
     async def test_sequential_retry_exhaustion(self):
         settings = MagicMock()
-        settings.cerebras_chat_model = "gpt-oss-120b"
         settings.groq_chat_model = "openai/gpt-oss-120b"
+        settings.groq_fast_model = "openai/gpt-oss-20b"
         settings.ollama_chat_model = "gpt-oss:120b"
 
         providers = {
-            "cerebras": FailingProvider(),
             "groq": FailingProvider(),
             "ollama": FailingProvider(),
         }

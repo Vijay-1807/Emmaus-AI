@@ -123,8 +123,9 @@ export interface Message {
 
 export interface EvalRun {
   id: string;
-  workspace_id: string;
+  config: { retrieval_mode?: string; categories?: string[] };
   status: string;
+  error: string | null;
   num_cases: number;
   retrieval_recall_at_5: number | null;
   retrieval_mrr: number | null;
@@ -137,14 +138,33 @@ export interface EvalRun {
 
 export interface TraceRun {
   id: string;
-  workspace_id: string;
-  investigation_id: string;
-  trace_id: string;
+  question: string;
+  status: string | null;
+  capabilities: string[];
+  latency_ms: number;
+  confidence: number | null;
+  model_run_count: number;
+  tool_run_count: number;
+  created_at: string;
+}
+
+export interface ProviderUsage {
   provider: string;
   model: string;
-  task: string;
-  input_tokens: number;
-  output_tokens: number;
-  latency_ms: number;
-  created_at: string;
+  calls: number;
+  tokens: number;
+  avg_latency_ms: number;
+}
+
+export interface ObservabilitySummary {
+  total_investigations: number;
+  avg_latency_ms: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  fallback_rate: number;
+  error_rate: number;
+  provider_usage: ProviderUsage[];
+  tool_usage: { tool: string; calls: number; successes: number }[];
 }

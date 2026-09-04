@@ -1,4 +1,5 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -50,14 +51,14 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="VedaX AI API",
+        title="Emmaus AI API",
         description="Multimodal Agentic Knowledge & Analysis Platform",
         version="0.1.0",
         lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origin_list,
+        allow_origins=settings.cors_origin_list if "*" not in settings.cors_origin_list else ["http://localhost:3000"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -67,8 +68,8 @@ def create_app() -> FastAPI:
 
         Path("media").mkdir(exist_ok=True)
         app.mount("/media", StaticFiles(directory="media"), name="media")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("media mount failed: %s", exc)
     prefix = settings.api_prefix
     app.include_router(auth.router, prefix=prefix)
     app.include_router(workspaces.router, prefix=prefix)
@@ -83,28 +84,46 @@ def create_app() -> FastAPI:
 
     @app.get(f"{prefix}/health")
     async def health():
+        from app.services.media_service import MediaService
+
         router = get_model_router()
+        media = MediaService()
         return {
             "status": "ok",
             "environment": settings.environment,
             "providers": router.describe(),
+            "storage": {
+                "mode": media.mode,
+                "cloudinary_configured": settings.has_cloudinary,
+                "cloudinary_usable": media.cloudinary_usable,
+            },
+            "telegram": {"configured": bool(settings.telegram_bot_token)},
         }
+
+    _health_cache: dict[str, Any] = {}
+    _health_cache_ttl: float = 30.0
 
     @app.get(f"{prefix}/health/detailed")
     async def health_detailed():
+        now = time.time()
+        if _health_cache.get("data") and now - _health_cache.get("ts", 0) < _health_cache_ttl:
+            return _health_cache["data"]
         router = get_model_router()
         embedding_service = get_embedding_service()
         embedding_health = await embedding_service.health_check()
         from app.rag.retriever import get_retriever
 
         retriever_health = await get_retriever().health()
-        return {
+        result = {
             "status": "ok",
             "providers": router.describe(),
             "embeddings": embedding_health,
             "retrieval": retriever_health,
             "storage": {"mode": settings.media_storage},
         }
+        _health_cache["data"] = result
+        _health_cache["ts"] = now
+        return result
 
     return app
 

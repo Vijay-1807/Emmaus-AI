@@ -43,5 +43,6 @@ async def refresh(payload: RefreshIn) -> TokenPair:
 @router.get("/me", response_model=UserOut)
 async def me(user: dict = Depends(get_current_user)) -> UserOut:
     return UserOut(
-        id=user["_id"], email=user["email"], name=user["name"], created_at=user["created_at"]
+        id=user["_id"], email=user["email"], name=user["name"],
+        is_anonymous=user.get("is_anonymous", False), created_at=user["created_at"]
     )

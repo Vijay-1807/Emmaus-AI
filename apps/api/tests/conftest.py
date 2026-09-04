@@ -49,6 +49,7 @@ COLLECTIONS = [
     "evaluation_cases",
     "evaluation_runs",
     "telegram_links",
+    "telegram_updates",
 ]
 
 

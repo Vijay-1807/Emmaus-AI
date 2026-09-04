@@ -20,11 +20,10 @@ from app.providers.ollama import OllamaProvider
 logger = logging.getLogger("vedax.router")
 
 COST_PER_MTOK: dict[tuple[str, str], tuple[float, float]] = {
-    ("cerebras", "gpt-oss-120b"): (0.15, 0.60),
-    ("cerebras", "gemma-4-31b"): (0.15, 0.60),
     ("groq", "openai/gpt-oss-120b"): (0.15, 0.60),
-    ("groq", "llama-3.1-8b-instant"): (0.05, 0.08),
-    ("groq", "llama-3.3-70b-versatile"): (0.59, 0.79),
+    ("groq", "openai/gpt-oss-20b"): (0.075, 0.30),
+    ("groq", "qwen/qwen3.6-27b"): (0.60, 3.00),
+    ("groq", "qwen/qwen3.8-27b"): (0.80, 4.00),
     ("ollama", "gpt-oss:120b"): (0.0, 0.0),
     ("ollama", "gemma4:31b"): (0.0, 0.0),
 }
@@ -47,35 +46,37 @@ class ModelRouter:
         chain: list[tuple[LLMProvider, str]] = []
 
         if task == TaskType.VISION:
-            if "cerebras" in self.providers:
-                chain.append((self.providers["cerebras"], s.cerebras_vision_model))
+            # Groq's scout model is OpenAI-compatible and reliable for image_url
+            # payloads; Ollama Cloud stays as fallback, then mock.
+            if "groq" in self.providers:
+                chain.append((self.providers["groq"], s.groq_vision_model))
             if "ollama" in self.providers:
                 chain.append((self.providers["ollama"], s.ollama_vision_model))
-            chain.append((self.providers["mock"], "mock-vision"))
+            if "mock" in self.providers:
+                chain.append((self.providers["mock"], "mock-vision"))
             return chain
 
         if task in (TaskType.CLASSIFY, TaskType.REWRITE, TaskType.RERANK, TaskType.VERIFY,
                     TaskType.EXTRACTION, TaskType.EVALUATION):
-            if "cerebras" in self.providers:
-                chain.append((self.providers["cerebras"], s.cerebras_chat_model))
             if "groq" in self.providers:
-                chain.append((self.providers["groq"], s.groq_chat_model))
+                chain.append((self.providers["groq"], s.groq_fast_model))
             if "ollama" in self.providers:
                 chain.append((self.providers["ollama"], s.ollama_chat_model))
-            chain.append((self.providers["mock"], "mock-fast"))
+            if "mock" in self.providers:
+                chain.append((self.providers["mock"], "mock-fast"))
             return chain
 
         if task == TaskType.REASONING:
-            if "cerebras" in self.providers:
-                chain.append((self.providers["cerebras"], s.cerebras_chat_model))
             if "groq" in self.providers:
                 chain.append((self.providers["groq"], s.groq_chat_model))
             if "ollama" in self.providers:
                 chain.append((self.providers["ollama"], s.ollama_chat_model))
-            chain.append((self.providers["mock"], "mock-reasoning"))
+            if "mock" in self.providers:
+                chain.append((self.providers["mock"], "mock-reasoning"))
             return chain
 
-        chain.append((self.providers["mock"], "mock-default"))
+        if "mock" in self.providers:
+            chain.append((self.providers["mock"], "mock-default"))
         return chain
 
     def primary_provider_name(self, task: TaskType) -> str:
@@ -169,12 +170,10 @@ class ModelRouter:
                 logger.error("stream provider %s failed: %s", provider.name, exc)
                 continue
 
-            async def _stream(current, m):
-                yield first_chunk
-                async for piece in current:
-                    yield piece
-
-            return _stream(iterator, model)
+            yield first_chunk
+            async for piece in iterator:
+                yield piece
+            return
         raise RuntimeError(f"all stream providers failed: {'; '.join(errors)}")
 
     async def complete_json(
@@ -203,11 +202,18 @@ class ModelRouter:
         return data, result
 
     def describe(self) -> dict[str, Any]:
+        def _info(p: LLMProvider) -> dict[str, Any]:
+            info: dict[str, Any] = {
+                "available": True,
+                "default_model": getattr(p, "default_model", "n/a"),
+            }
+            for attr in ("fast_model", "vision_model"):
+                if hasattr(p, attr):
+                    info[attr] = getattr(p, attr)
+            return info
+
         return {
-            "providers": {
-                name: {"available": True, "default_model": getattr(p, "default_model", "n/a")}
-                for name, p in self.providers.items()
-            },
+            "providers": {name: _info(p) for name, p in self.providers.items()},
             "routing": {
                 "reasoning": self.primary_provider_name(TaskType.REASONING),
                 "fast_tasks": self.primary_provider_name(TaskType.CLASSIFY),
@@ -224,19 +230,21 @@ def get_model_router() -> ModelRouter:
     if _router is None:
         settings = get_settings()
         providers: dict[str, LLMProvider] = {}
-        if settings.has_cerebras:
-            providers["cerebras"] = CerebrasProvider(
-                settings.cerebras_api_key,
-                settings.cerebras_base_url,
-                settings.cerebras_chat_model,
-                settings.cerebras_vision_model,
-            )
+        # Cerebras removed - account has no quota (402). Re-enable when billing is fixed.
+        # if settings.has_cerebras:
+        #     providers["cerebras"] = CerebrasProvider(
+        #         settings.cerebras_api_key,
+        #         settings.cerebras_base_url,
+        #         settings.cerebras_chat_model,
+        #         settings.cerebras_vision_model,
+        #     )
         if settings.has_groq:
             providers["groq"] = GroqProvider(
                 settings.groq_api_key,
                 settings.groq_base_url,
                 settings.groq_chat_model,
                 settings.groq_fast_model,
+                settings.groq_vision_model,
             )
         if settings.has_ollama:
             providers["ollama"] = OllamaProvider(

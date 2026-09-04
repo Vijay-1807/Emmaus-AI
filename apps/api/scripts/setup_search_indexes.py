@@ -1,4 +1,4 @@
-"""Create MongoDB Atlas Search indexes for VedaX AI hybrid retrieval.
+"""Create MongoDB Atlas Search indexes for Emmaus AI hybrid retrieval.
 
 Run once after your Atlas cluster is reachable:
     uv run python scripts/setup_search_indexes.py
@@ -12,11 +12,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pymongo.asynchronous import AsyncMongoClient
+from pymongo.asynchronous.mongo_client import AsyncMongoClient
+from pymongo.errors import OperationFailure
 
 from app.core.config import get_settings
 
-VECTOR_INDEX = {
+def vector_index(dimensions: int) -> dict:
+    return {
     "name": "vector_index",
     "type": "vectorSearch",
     "definition": {
@@ -24,7 +26,7 @@ VECTOR_INDEX = {
             {
                 "type": "vector",
                 "path": "embedding",
-                "numDimensions": 3072,
+                "numDimensions": dimensions,
                 "similarity": "cosine",
             },
             {"type": "filter", "path": "workspace_id"},
@@ -32,7 +34,7 @@ VECTOR_INDEX = {
             {"type": "filter", "path": "source_type"},
         ]
     },
-}
+    }
 
 LEXICAL_INDEX = {
     "name": "lexical_index",
@@ -42,9 +44,9 @@ LEXICAL_INDEX = {
             "dynamic": False,
             "fields": {
                 "content": {"type": "string"},
-                "workspace_id": {"type": "keyword"},
-                "document_id": {"type": "keyword"},
-                "source_type": {"type": "keyword"},
+                "workspace_id": {"type": "token"},
+                "document_id": {"type": "token"},
+                "source_type": {"type": "token"},
                 "document_name": {"type": "string"},
             }
         }
@@ -54,20 +56,40 @@ LEXICAL_INDEX = {
 
 async def main() -> None:
     settings = get_settings()
-    if settings.embedding_dimensions != 768:
-        VECTOR_INDEX["definition"]["fields"][0]["numDimensions"] = settings.embedding_dimensions
-        print(f"using embedding dimensions from settings: {settings.embedding_dimensions}")
+    dimensions = (
+        settings.gemini_embedding_dimensions
+        if settings.embedding_provider == "gemini"
+        else settings.embedding_dimensions
+    )
+    indexes = (vector_index(dimensions), LEXICAL_INDEX)
+    print(f"configuring indexes for {settings.embedding_provider} embeddings ({dimensions} dimensions)")
     client = AsyncMongoClient(settings.mongodb_uri)
-    db = client[settings.mongodb_db]
-    existing = await db.command({"listSearchIndexes": "document_chunks"})
-    existing_names = {doc["name"] for doc in existing.get("cursor", {}).get("firstBatch", [])}
-    for index in (VECTOR_INDEX, LEXICAL_INDEX):
-        if index["name"] in existing_names:
-            print(f"index '{index['name']}' already exists - skipping")
-            continue
-        await db.command({"createSearchIndexes": "document_chunks", "indexes": [index]})
-        print(f"created search index '{index['name']}' (building on Atlas may take ~1 minute)")
-    client.close()
+    try:
+        db = client[settings.mongodb_db]
+        try:
+            existing = await db.command({"listSearchIndexes": "document_chunks"})
+        except OperationFailure as exc:
+            if exc.code == 59:
+                print(
+                    "Atlas Search index commands are unavailable on this connection. "
+                    "Create vector_index and lexical_index in the Atlas UI."
+                )
+                return
+            raise
+        existing_names = {doc["name"] for doc in existing.get("cursor", {}).get("firstBatch", [])}
+        for index in indexes:
+            if index["name"] in existing_names:
+                await db.command({
+                    "updateSearchIndex": "document_chunks",
+                    "name": index["name"],
+                    "definition": index["definition"],
+                })
+                print(f"updated search index '{index['name']}'")
+            else:
+                await db.command({"createSearchIndexes": "document_chunks", "indexes": [index]})
+                print(f"created search index '{index['name']}'")
+    finally:
+        await client.close()
     print("done")
 
 

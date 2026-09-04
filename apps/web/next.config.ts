@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  turbopack: {
+    root: process.cwd(),
+  },
   serverExternalPackages: [],
   experimental: {
     serverActions: {
@@ -14,6 +17,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/:path*",
         destination: `${apiUrl}/api/:path*`,
+      },
+      {
+        source: "/media/:path*",
+        destination: `${apiUrl}/media/:path*`,
       },
     ];
   },

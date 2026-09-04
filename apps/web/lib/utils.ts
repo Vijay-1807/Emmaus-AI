@@ -26,3 +26,20 @@ export function formatDate(date: string | Date): string {
 export function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max) + "..." : str;
 }
+
+export function getMediaUrl(url?: string | null): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:") || url.startsWith("blob:")) {
+    return url;
+  }
+  const cleanPath = url.startsWith("/") ? url : `/${url}`;
+  // Same-origin in local dev (Next rewrites proxy /media) — no host issues.
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host === "localhost" || host === "127.0.0.1" || host.startsWith("192.168.") || host.startsWith("10.")) {
+      return cleanPath;
+    }
+  }
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  return `${apiUrl.replace(/\/$/, "")}${cleanPath}`;
+}

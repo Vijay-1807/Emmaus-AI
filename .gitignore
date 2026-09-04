@@ -19,6 +19,8 @@ out/
 .env
 .env.local
 .env*.local
+apps/web/test-results/
+playwright-report/
 *.pem
 
 # Media / data

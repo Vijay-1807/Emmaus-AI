@@ -81,12 +81,17 @@ class Retriever:
         top_k = top_k or self.settings.final_top_k
         vector_results: list[RetrievedChunk] = []
         lexical_results: list[RetrievedChunk] = []
+        if not document_ids:
+            document_ids = await self._single_source_scope(workspace_id)
 
         if mode in ("vector", "hybrid", "hybrid_rerank"):
             t0 = time.perf_counter()
-            vector_results = await self.vector_search(
-                workspace_id, query, query_vector=query_vector, document_ids=document_ids
-            )
+            try:
+                vector_results = await self.vector_search(
+                    workspace_id, query, query_vector=query_vector, document_ids=document_ids
+                )
+            except Exception as exc:
+                logger.warning("vector retrieval unavailable, continuing lexically: %s", exc)
             record_event(trace, name="vector_search", event_type="retrieval", metadata={
                 "query": query[:200], "mode": mode, "results": len(vector_results),
                 "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
@@ -100,6 +105,23 @@ class Retriever:
                 "query": query[:200], "mode": mode, "results": len(lexical_results),
                 "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
             })
+
+        # If both search methods returned nothing, fall back to text match
+        if not vector_results and not lexical_results:
+            text_results = await self._text_fallback(workspace_id, query, document_ids)
+            if text_results:
+                logger.info("text fallback returned %d results", len(text_results))
+                vector_results = text_results
+
+        # An explicit attachment means "answer from this source". Include the full
+        # context for small documents so facts split across chunks can be combined.
+        if document_ids:
+            attached = await self._attached_document_chunks(workspace_id, document_ids)
+            seen = {chunk.chunk_id for chunk in vector_results + lexical_results}
+            for chunk in attached:
+                if chunk.chunk_id not in seen:
+                    lexical_results.append(chunk)
+                    seen.add(chunk.chunk_id)
 
         if mode == "vector":
             fused = sorted(vector_results, key=lambda c: c.vector_score, reverse=True)
@@ -121,6 +143,135 @@ class Retriever:
         })
         return fused[:top_k]
 
+    async def _single_source_scope(self, workspace_id: str) -> list[str] | None:
+        db = get_db()
+        source_ids = []
+        for collection in (db.documents, db.datasets):
+            cursor = collection.find(
+                {"workspace_id": workspace_id, "status": "ready"}, {"_id": 1}
+            ).limit(2)
+            async for doc in cursor:
+                source_ids.append(doc["_id"])
+            if len(source_ids) > 1:
+                return None
+        return source_ids or None
+
+    async def _attached_document_chunks(
+        self, workspace_id: str, document_ids: list[str]
+    ) -> list[RetrievedChunk]:
+        db = get_db()
+        cursor = db.document_chunks.find(
+            {"workspace_id": workspace_id, "document_id": {"$in": document_ids}},
+            PROJECTION,
+        ).sort([("document_id", 1), ("chunk_index", 1)]).limit(25)
+        return [
+            RetrievedChunk(
+                chunk_id=str(doc["_id"]),
+                document_id=doc["document_id"],
+                document_name=doc.get("document_name", ""),
+                source_type=doc.get("source_type", "document"),
+                content=doc.get("content", ""),
+                page=doc.get("page"),
+                section=doc.get("section"),
+                lexical_score=0.1,
+            )
+            async for doc in cursor
+        ]
+
+    async def _text_fallback(
+        self,
+        workspace_id: str,
+        query: str,
+        document_ids: list[str] | None = None,
+    ) -> list[RetrievedChunk]:
+        """Fallback: use MongoDB $text search or regex when Atlas search indexes are missing."""
+        db = get_db()
+        search_filter: dict[str, Any] = {"workspace_id": workspace_id}
+        if document_ids:
+            search_filter["document_id"] = {"$in": document_ids}
+
+        # Try $text search first (requires a standard text index on 'content')
+        try:
+            # NOTE: find() returns a cursor synchronously — never await it
+            # (awaiting raises "AsyncCursor can't be used in 'await' expression").
+            cursor = db.document_chunks.find(
+                {**search_filter, "$text": {"$search": query}},
+                {**PROJECTION, "score": {"$meta": "textScore"}},
+            ).sort([("score", {"$meta": "textScore"})]).limit(self.settings.vector_search_top_k)
+            results = [
+                RetrievedChunk(
+                    chunk_id=str(doc["_id"]),
+                    document_id=doc["document_id"],
+                    document_name=doc.get("document_name", ""),
+                    source_type=doc.get("source_type", "document"),
+                    content=doc.get("content", ""),
+                    page=doc.get("page"),
+                    section=doc.get("section"),
+                    lexical_score=round(float(doc.get("score", 0.0)), 4),
+                )
+                async for doc in cursor
+            ]
+            if results:
+                return results
+        except Exception as exc:
+            logger.debug("text search failed: %s", exc)
+
+        # Last resort: rank chunks by the number of meaningful query terms they match.
+        try:
+            import re
+            stopwords = {"and", "are", "for", "from", "his", "how", "name", "of", "person", "the", "their", "what", "whats", "who", "with"}
+            words = {
+                word for word in re.findall(r"[a-z0-9]+", query.lower())
+                if len(word) > 2 and word not in stopwords
+            }
+            if words:
+                pattern = "|".join(re.escape(word) for word in sorted(words))
+                cursor = db.document_chunks.find(
+                    {**search_filter, "content": {"$regex": pattern, "$options": "i"}},
+                    PROJECTION,
+                ).limit(self.settings.vector_search_top_k)
+                ranked = []
+                async for doc in cursor:
+                    content_lower = doc.get("content", "").lower()
+                    matches = sum(word in content_lower for word in words)
+                    ranked.append((matches, doc))
+                ranked.sort(key=lambda item: item[0], reverse=True)
+                return [
+                    RetrievedChunk(
+                        chunk_id=str(doc["_id"]),
+                        document_id=doc["document_id"],
+                        document_name=doc.get("document_name", ""),
+                        source_type=doc.get("source_type", "document"),
+                        content=doc.get("content", ""),
+                        page=doc.get("page"),
+                        section=doc.get("section"),
+                        lexical_score=round(matches / len(words), 4),
+                    )
+                    for matches, doc in ranked
+                ]
+
+            # Reading a specifically attached small document is intentional, unlike
+            # returning arbitrary chunks from an entire workspace.
+            if document_ids:
+                cursor = db.document_chunks.find(search_filter, PROJECTION).sort("chunk_index", 1).limit(25)
+                return [
+                    RetrievedChunk(
+                        chunk_id=str(doc["_id"]),
+                        document_id=doc["document_id"],
+                        document_name=doc.get("document_name", ""),
+                        source_type=doc.get("source_type", "document"),
+                        content=doc.get("content", ""),
+                        page=doc.get("page"),
+                        section=doc.get("section"),
+                        lexical_score=0.1,
+                    )
+                    async for doc in cursor
+                ]
+            return []
+        except Exception as exc:
+            logger.warning("regex fallback failed: %s", exc)
+            return []
+
     async def vector_search(
         self,
         workspace_id: str,
@@ -131,13 +282,14 @@ class Retriever:
         document_ids: list[str] | None = None,
     ) -> list[RetrievedChunk]:
         db = get_db()
-        if query_vector is None:
-            query_vector = (await get_embedding_service().embed([query]))[0]
-        limit = limit or self.settings.vector_search_top_k
-        search_filter: dict[str, Any] = {"workspace_id": workspace_id}
-        if document_ids:
-            search_filter["document_id"] = {"$in": document_ids}
-        pipeline = [
+        try:
+            if query_vector is None:
+                query_vector = (await get_embedding_service().embed([query]))[0]
+            limit = limit or self.settings.vector_search_top_k
+            search_filter: dict[str, Any] = {"workspace_id": workspace_id}
+            if document_ids:
+                search_filter["document_id"] = {"$in": document_ids}
+            pipeline = [
             {
                 "$vectorSearch": {
                     "index": VECTOR_INDEX,
@@ -149,9 +301,8 @@ class Retriever:
                 }
             },
             {"$project": {**PROJECTION, "score": {"$meta": "vectorSearchScore"}}},
-        ]
-        try:
-            cursor = db.document_chunks.aggregate(pipeline)
+            ]
+            cursor = await db.document_chunks.aggregate(pipeline)
             return [
                 RetrievedChunk(
                     chunk_id=str(doc["_id"]),
@@ -189,6 +340,7 @@ class Retriever:
                     "compound": {
                         "filter": clauses,
                         "should": [{"text": {"query": query, "path": "content"}}],
+                        "minimumShouldMatch": 1,
                     },
                 }
             },
@@ -196,7 +348,7 @@ class Retriever:
             {"$limit": limit},
         ]
         try:
-            cursor = db.document_chunks.aggregate(pipeline)
+            cursor = await db.document_chunks.aggregate(pipeline)
             return [
                 RetrievedChunk(
                     chunk_id=str(doc["_id"]),

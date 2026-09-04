@@ -1,6 +1,6 @@
-import hashlib
 import hmac
 import json
+import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
@@ -19,10 +19,10 @@ async def telegram_webhook(
     settings = get_settings()
     if not settings.telegram_bot_token:
         raise HTTPException(status_code=503, detail="telegram bot not configured")
-    if settings.environment == "production" and not settings.telegram_webhook_secret:
+    if not settings.telegram_webhook_secret:
         raise HTTPException(
             status_code=503,
-            detail="TELEGRAM_WEBHOOK_SECRET must be set in production",
+            detail="TELEGRAM_WEBHOOK_SECRET must be set before enabling the webhook",
         )
     if settings.telegram_webhook_secret:
         expected = settings.telegram_webhook_secret
@@ -33,12 +33,20 @@ async def telegram_webhook(
         update = await request.json()
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="invalid JSON payload")
+    update_id = update.get("update_id")
+    if update_id is None:
+        raise HTTPException(status_code=400, detail="Telegram update_id is required")
     try:
-        await telegram.handle_update(update)
+        claimed = await telegram.claim_update(int(update_id))
     except Exception as exc:
-        import logging
+        logging.getLogger("vedax.telegram").error("webhook claim failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=503, detail="webhook temporarily unavailable")
+    if not claimed:
+        return {"ok": True, "duplicate": True}
 
-        logging.getLogger("vedax.telegram").error("webhook handling failed: %s", exc, exc_info=True)
+    import asyncio
+
+    asyncio.create_task(telegram.process_claimed_update(int(update_id), update))
     return {"ok": True}
 
 

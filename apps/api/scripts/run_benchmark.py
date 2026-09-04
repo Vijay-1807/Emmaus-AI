@@ -34,7 +34,7 @@ def percentile(values: list[float], p: float) -> float:
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Run VedaX benchmark")
+    parser = argparse.ArgumentParser(description="Run Emmaus benchmark")
     parser.add_argument("--mode", default="hybrid_rerank", help="retrieval mode")
     parser.add_argument("--output", default="benchmark_results.json", help="output file")
     parser.add_argument("--categories", nargs="*", help="filter categories")

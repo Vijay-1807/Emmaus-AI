@@ -87,6 +87,17 @@ async def upload_media(
     return to_out(media)
 
 
+@router.get("", response_model=list[MediaAssetOut])
+async def list_media(
+    workspace_id: str, user: dict = Depends(get_current_user)
+) -> list[MediaAssetOut]:
+    await require_workspace(workspace_id, user)
+    db = get_db()
+    cursor = db.media_assets.find({"workspace_id": workspace_id}).sort("created_at", -1)
+    items = await cursor.to_list(length=100)
+    return [to_out(m) for m in items]
+
+
 @router.get("/{media_id}", response_model=MediaAssetOut)
 async def get_media(
     media_id: str, workspace_id: str, user: dict = Depends(get_current_user)

@@ -1,7 +1,7 @@
 [project]
-name = "vedax-api"
+name = "emmaus-api"
 version = "0.1.0"
-description = "VedaX AI - Multimodal Agentic Knowledge & Analysis Platform API"
+description = "Emmaus AI - Multimodal Agentic Knowledge & Analysis Platform API"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

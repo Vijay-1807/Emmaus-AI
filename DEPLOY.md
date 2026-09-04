@@ -1,4 +1,4 @@
-# VedaX AI — Deployment Checklist
+# Emmaus AI — Deployment Checklist
 
 ## Before You Start
 
@@ -71,7 +71,7 @@ Then create second index:
 
 1. Go to https://render.com
 2. New → Web Service → Connect GitHub repo
-3. Select `vedax-ai` repo
+3. Select `Emmaus-AI` repo
 4. Render auto-detects `render.yaml`
 
 ### Set Environment Variables on Render:
@@ -89,7 +89,8 @@ CEREBRAS_VISION_MODEL=gemma-4-31b
 GROQ_API_KEY=your_groq_key
 GROQ_BASE_URL=https://api.groq.com/openai/v1
 GROQ_CHAT_MODEL=openai/gpt-oss-120b
-GROQ_FAST_MODEL=llama-3.1-8b-instant
+GROQ_FAST_MODEL=openai/gpt-oss-20b
+GROQ_VISION_MODEL=qwen/qwen3.6-27b
 GROQ_STT_MODEL=whisper-large-v3-turbo
 OLLAMA_API_KEY=your_ollama_key
 OLLAMA_BASE_URL=https://ollama.com/v1
@@ -106,7 +107,7 @@ DEEPGRAM_API_KEY=your_deepgram_key
 ```
 
 5. Deploy (takes ~3 minutes)
-6. Note the URL: `https://vedax-api-xxxx.onrender.com`
+6. Note the URL: `https://emmaus-api-xxxx.onrender.com`
 
 ---
 
@@ -122,10 +123,10 @@ DEEPGRAM_API_KEY=your_deepgram_key
 ## Step 6: Deploy Frontend to Vercel (3 minutes)
 
 1. Go to https://vercel.com
-2. Import `vedax-ai/apps/web`
+2. Import `Emmaus-AI/apps/web`
 3. Set environment variable:
    ```
-   NEXT_PUBLIC_API_URL=https://vedax-api-xxxx.onrender.com
+   NEXT_PUBLIC_API_URL=https://emmaus-api-xxxx.onrender.com
    ```
 4. Deploy
 5. Note the URL: `https://vedax-xxxx.vercel.app`
@@ -134,7 +135,7 @@ DEEPGRAM_API_KEY=your_deepgram_key
 
 ## Step 7: Update CORS on Render
 
-1. Go to Render dashboard → vedax-api → Environment
+1. Go to Render dashboard → emmaus-api → Environment
 2. Update `CORS_ORIGINS` to include your Vercel URL:
    ```
    CORS_ORIGINS=https://vedax-xxxx.vercel.app,http://localhost:3000
@@ -180,16 +181,31 @@ After benchmark completes, update `README.md` benchmark section with:
 
 ---
 
+## Step 11: Telegram Bot (5 minutes, free forever)
+
+The Bot API is 100% free with no usage charges.
+
+1. Chat **@BotFather** on Telegram → `/newbot` → name it → copy the token
+2. Generate a webhook secret (any random string, e.g. `openssl rand -hex 24`)
+3. Set on Render: `TELEGRAM_BOT_TOKEN=<token>` and `TELEGRAM_WEBHOOK_SECRET=<secret>`
+4. Register the webhook + command menu (one command, run anywhere with the API env):
+   `uv run python scripts/set_telegram_webhook.py https://<your-render-api-host>/api/telegram/webhook`
+5. Open your bot → `/start` → each Telegram chat auto-gets its own user + workspace
+
+What users get: full multimodal chat (text, docs, photos, voice), `/new` /history /status /help, typing indicator, per-answer *Sources* + *New chat* buttons, and burst protection (8 msgs/min, one run at a time) so free-tier Groq quota is safe.
+
+---
+
 ## Model Routing Summary
 
 Fallback order: Cerebras → Groq → Ollama → Mock
 
 | Task | Primary | 2nd | 3rd | Model |
 |------|---------|-----|-----|-------|
-| Reasoning (RAG, answers) | Cerebras | Groq | Ollama | gpt-oss-120b |
-| Vision (images, charts) | Cerebras | Ollama | Mock | gemma-4-31b |
-| Fast tasks (classify, rewrite, rerank) | Cerebras | Groq | Ollama | gpt-oss-120b |
-| Speech-to-Text | Sarvam | Deepgram | Groq | saaras:v4 / nova-3 / whisper |
+| Reasoning (RAG, answers) | Groq | Ollama | Mock | openai/gpt-oss-120b |
+| Vision (images, charts) | Groq (qwen3.6-27b) | Ollama (gemma4:31b) | Mock | qwen/qwen3.6-27b |
+| Fast tasks (classify, rewrite, rerank) | Groq | Ollama | Mock | openai/gpt-oss-20b |
+| Speech-to-Text | Deepgram | Sarvam | Groq | nova-3 / saaras:v4 / whisper |
 | Embeddings | Gemini | Ollama | Local | gemini-embedding-001 (3072d) |
 
 ---

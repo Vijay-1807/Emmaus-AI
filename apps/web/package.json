@@ -1,33 +1,37 @@
 {
-  "name": "@vedax/web",
+  "name": "@emmaus/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "clsx": "^2.1",
+    "gsap": "^3.15.0",
+    "lucide-react": "^0.500",
+    "motion": "^13.2.0",
     "next": "^15.3",
     "react": "^19.1",
     "react-dom": "^19.1",
-    "zustand": "^5.0",
-    "lucide-react": "^0.500",
-    "clsx": "^2.1",
+    "react-markdown": "^10.1",
+    "recharts": "^3.10.1",
     "tailwind-merge": "^3.0",
-    "react-markdown": "^10.1"
+    "zustand": "^5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@tailwindcss/postcss": "^4.1",
     "@types/node": "^22.0",
     "@types/react": "^19.1",
     "@types/react-dom": "^19.1",
-    "typescript": "^5.8",
-    "tailwindcss": "^4.1",
-    "@tailwindcss/postcss": "^4.1",
-    "postcss": "^8.5",
     "eslint": "^9.0",
-    "eslint-config-next": "^15.3"
+    "eslint-config-next": "^15.3",
+    "postcss": "^8.5",
+    "tailwindcss": "^4.1",
+    "typescript": "^5.8"
   }
 }

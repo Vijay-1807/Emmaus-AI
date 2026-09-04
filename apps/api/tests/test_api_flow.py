@@ -1,7 +1,10 @@
 import asyncio
 import json
+from datetime import datetime, timezone
 
 import pytest
+
+import app.core.db as db_module
 
 
 @pytest.mark.asyncio
@@ -47,6 +50,22 @@ async def test_auth_flow(client):
 
     me_no_token = await client.get("/api/auth/me")
     assert me_no_token.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_anonymous_auth_flow(client):
+    response = await client.post("/api/auth/anonymous")
+    assert response.status_code == 201, response.text
+    tokens = response.json()
+    assert tokens["access_token"] and tokens["refresh_token"]
+    assert tokens["user"]["email"].endswith("@guest.vedax.ai")
+
+    me = await client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    )
+    assert me.status_code == 200
+    assert me.json()["name"] == "Guest"
 
 
 @pytest.mark.asyncio
@@ -200,6 +219,55 @@ async def test_chat_stream_end_to_end(client, auth_headers, workspace):
 
 
 @pytest.mark.asyncio
+async def test_investigation_delete(client, auth_headers, workspace):
+    doc = {
+        "_id": "inv-delete-1",
+        "workspace_id": workspace["id"],
+        "question": "delete me",
+        "answer": "bye",
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db_module._db["investigations"].insert_one(dict(doc))
+
+    listing = await client.get(
+        "/api/investigations", params={"workspace_id": workspace["id"]}, headers=auth_headers
+    )
+    assert listing.status_code == 200
+    assert len(listing.json()) == 1
+
+    deleted = await client.delete(
+        f"/api/investigations/{doc['_id']}",
+        params={"workspace_id": workspace["id"]},
+        headers=auth_headers,
+    )
+    assert deleted.status_code == 204
+
+    listing = await client.get(
+        "/api/investigations", params={"workspace_id": workspace["id"]}, headers=auth_headers
+    )
+    assert listing.json() == []
+
+    again = await client.delete(
+        f"/api/investigations/{doc['_id']}",
+        params={"workspace_id": workspace["id"]},
+        headers=auth_headers,
+    )
+    assert again.status_code == 404
+
+    other = await client.post(
+        "/api/workspaces", json={"name": "Other"}, headers=auth_headers
+    )
+    other_id = other.json()["id"]
+    await db_module._db["investigations"].insert_one({**doc, "_id": "inv-delete-2"})
+    cross = await client.delete(
+        "/api/investigations/inv-delete-2",
+        params={"workspace_id": other_id},
+        headers=auth_headers,
+    )
+    assert cross.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_observability_after_chat(client, auth_headers, workspace):
     async with client.stream(
         "POST",
@@ -241,3 +309,143 @@ async def test_evaluation_seeding_and_listing(client, auth_headers, workspace):
     cases = await client.get("/api/evaluation/cases", headers=auth_headers)
     assert cases.status_code == 200
     assert len(cases.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_evaluation_run_end_to_end(client, auth_headers, workspace):
+    seed = await client.post(
+        "/api/evaluation/cases",
+        json={
+            "question": "What was Q3 revenue?",
+            "expected_answer": "$2.4M",
+            "expected_document_names": ["report.txt"],
+            "category": "direct",
+        },
+        headers=auth_headers,
+    )
+    assert seed.status_code == 201
+
+    run = await client.post(
+        "/api/evaluation/run",
+        json={"workspace_id": workspace["id"], "retrieval_mode": "hybrid_rerank", "max_cases": 5},
+        headers=auth_headers,
+    )
+    assert run.status_code == 201, run.text
+    assert run.json()["status"] == "running"
+
+    final = None
+    for _ in range(100):
+        await asyncio.sleep(0.2)
+        runs = await client.get(
+            "/api/evaluation/runs", params={"workspace_id": workspace["id"]}, headers=auth_headers
+        )
+        assert runs.status_code == 200
+        if runs.json() and runs.json()[0]["status"] != "running":
+            final = runs.json()[0]
+            break
+    assert final is not None, "evaluation run never finished"
+    assert final["status"] == "completed"
+    assert final["num_cases"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_evaluation_run_without_cases_fails_clearly(client, auth_headers, workspace):
+    run = await client.post(
+        "/api/evaluation/run",
+        json={"workspace_id": workspace["id"], "retrieval_mode": "hybrid_rerank", "max_cases": 5},
+        headers=auth_headers,
+    )
+    assert run.status_code == 201, run.text
+
+    final = None
+    for _ in range(50):
+        await asyncio.sleep(0.2)
+        runs = await client.get(
+            "/api/evaluation/runs", params={"workspace_id": workspace["id"]}, headers=auth_headers
+        )
+        assert runs.status_code == 200
+        if runs.json() and runs.json()[0]["status"] != "running":
+            final = runs.json()[0]
+            break
+    assert final is not None, "evaluation run never finished"
+    assert final["status"] == "failed"
+    assert final["error"] == "no evaluation cases found"
+
+
+@pytest.mark.asyncio
+async def test_seed_from_history(client, auth_headers, workspace):
+    from datetime import datetime, timezone
+
+    empty = await client.post(
+        "/api/evaluation/seed-from-history",
+        json={"workspace_id": workspace["id"]},
+        headers=auth_headers,
+    )
+    assert empty.status_code == 400
+
+    await db_module._db["investigations"].insert_one(
+        {
+            "_id": "inv-seed-1",
+            "workspace_id": workspace["id"],
+            "question": "What was Q3 revenue?",
+            "answer": "Revenue was $2.4M.",
+            "citations": [{"document_name": "report.txt"}],
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+    seeded = await client.post(
+        "/api/evaluation/seed-from-history",
+        json={"workspace_id": workspace["id"]},
+        headers=auth_headers,
+    )
+    assert seeded.status_code == 200
+    assert seeded.json()["inserted"] == 1
+
+    # Idempotent — same investigation won't seed twice.
+    again = await client.post(
+        "/api/evaluation/seed-from-history",
+        json={"workspace_id": workspace["id"]},
+        headers=auth_headers,
+    )
+    assert again.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_health_reports_storage_and_telegram(client):
+    response = await client.get("/api/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["storage"]["mode"] in ("cloudinary", "local")
+    assert isinstance(body["storage"]["cloudinary_configured"], bool)
+    assert isinstance(body["telegram"]["configured"], bool)
+
+
+@pytest.mark.asyncio
+async def test_clear_workspace_and_storage_summary(client, auth_headers, workspace):
+    # Check storage summary
+    summary = await client.get(
+        f"/api/workspaces/{workspace['id']}/storage-summary", headers=auth_headers
+    )
+    assert summary.status_code == 200
+    data = summary.json()
+    assert "documents" in data
+    assert "datasets" in data
+    assert "total_size_bytes" in data
+
+    # Clear workspace
+    clear_res = await client.post(
+        f"/api/workspaces/{workspace['id']}/clear", headers=auth_headers
+    )
+    assert clear_res.status_code == 200
+    body = clear_res.json()
+    assert "details" in body
+    assert body["details"]["workspace_id"] == workspace["id"]
+
+    # Verify summary is now zeroed
+    summary2 = await client.get(
+        f"/api/workspaces/{workspace['id']}/storage-summary", headers=auth_headers
+    )
+    assert summary2.status_code == 200
+    data2 = summary2.json()
+    assert data2["documents"]["count"] == 0
+    assert data2["datasets"]["count"] == 0

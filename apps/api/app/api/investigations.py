@@ -52,3 +52,16 @@ async def get_investigation(
     if not investigation:
         raise HTTPException(status_code=404, detail="investigation not found")
     return to_out(investigation)
+
+
+@router.delete("/{investigation_id}", status_code=204)
+async def delete_investigation(
+    investigation_id: str, workspace_id: str, user: dict = Depends(get_current_user)
+) -> None:
+    await require_workspace(workspace_id, user)
+    db = get_db()
+    result = await db.investigations.delete_one(
+        {"_id": investigation_id, "workspace_id": workspace_id}
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="investigation not found")

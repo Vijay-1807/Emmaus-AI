@@ -29,7 +29,37 @@ def _image_block(image_bytes: bytes, mime: str) -> dict[str, Any]:
     return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}
 
 
+# Cloud vision gateways reject giant payloads (a 21MB phone photo becomes a
+# ~28MB JSON body). Downscale anything oversized before it leaves the server.
+MAX_VISION_DIM = 1568
+MAX_VISION_BYTES = 1_500_000
+
+
+def _prepare_image(image_bytes: bytes, mime: str) -> tuple[bytes, str]:
+    if len(image_bytes) <= MAX_VISION_BYTES and mime in ("image/jpeg", "image/webp"):
+        return image_bytes, mime
+    try:
+        import io
+
+        from PIL import Image
+
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            img = img.convert("RGB")
+            if max(img.size) > MAX_VISION_DIM or len(image_bytes) > MAX_VISION_BYTES:
+                img.thumbnail((MAX_VISION_DIM, MAX_VISION_DIM), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85, optimize=True)
+            out = buf.getvalue()
+            if len(out) < len(image_bytes):
+                return out, "image/jpeg"
+            return image_bytes, mime
+    except Exception as exc:
+        logger.warning("image downscale skipped: %s", exc)
+        return image_bytes, mime
+
+
 async def ocr_image(image_bytes: bytes, mime: str = "image/png", ctx: RunContext | None = None) -> dict[str, Any]:
+    image_bytes, mime = _prepare_image(image_bytes, mime)
     router = get_model_router()
     messages = [
         {
@@ -54,6 +84,7 @@ async def ocr_image(image_bytes: bytes, mime: str = "image/png", ctx: RunContext
 async def analyze_image(
     image_bytes: bytes, mime: str = "image/png", ctx: RunContext | None = None
 ) -> dict[str, Any]:
+    image_bytes, mime = _prepare_image(image_bytes, mime)
     router = get_model_router()
     messages = [
         {

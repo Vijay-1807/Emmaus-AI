@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: vedax-api
+    name: emmaus-api
     runtime: docker
     dockerfilePath: infra/docker/Dockerfile.api
     dockerContext: apps/api
@@ -41,7 +41,7 @@ services:
     autoDeploy: true
 
   - type: worker
-    name: vedax-worker
+    name: emmaus-worker
     runtime: docker
     dockerfilePath: infra/docker/Dockerfile.worker
     dockerContext: apps/api

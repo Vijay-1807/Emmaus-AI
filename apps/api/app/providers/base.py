@@ -111,6 +111,32 @@ def extract_json(text: str) -> Any:
     raise ValueError("no valid JSON found in model output")
 
 
+def _retry_after_seconds(exc: Exception, default: float) -> float:
+    """Honor Groq/rate-limit 'try again in Xs' hints instead of hammering."""
+    import random
+    import re
+
+    text = str(exc)
+    match = re.search(r"try again in ([\d.]+)s", text)
+    if match:
+        try:
+            return min(float(match.group(1)) + random.uniform(0.2, 0.8), 30.0)
+        except ValueError:
+            pass
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers:
+        for key in ("retry-after", "retry-after-ms", "ratelimit-reset"):
+            value = headers.get(key)
+            if value is not None:
+                try:
+                    seconds = float(value) / 1000.0 if key == "retry-after-ms" else float(value)
+                    return min(max(seconds, 0.5), 30.0)
+                except (TypeError, ValueError):
+                    continue
+    return default
+
+
 async def with_retries(fn, *, attempts: int = 3, base_delay: float = 0.8) -> Any:
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
@@ -119,9 +145,10 @@ async def with_retries(fn, *, attempts: int = 3, base_delay: float = 0.8) -> Any
         except Exception as exc:
             last_error = exc
             if attempt < attempts:
-                delay = base_delay * 2 ** (attempt - 1)
+                delay = max(base_delay * 2 ** (attempt - 1), _retry_after_seconds(exc, 0.0))
                 logger.warning(
-                    "provider attempt %s/%s failed: %s", attempt, attempts, exc
+                    "provider attempt %s/%s failed: %s (retrying in %.1fs)",
+                    attempt, attempts, exc, delay,
                 )
                 await asyncio.sleep(delay)
     raise last_error

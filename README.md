@@ -1,8 +1,8 @@
-# VedaX AI
+# Emmaus AI
 
 **Multimodal Agentic Knowledge & Analysis Platform**
 
-Upload documents, datasets, images, handwritten pages, or audio. Ask a question. VedaX intelligently combines RAG, data analysis, vision/OCR, and agentic reasoning to produce verified, cited answers, charts, and reports.
+Upload documents, datasets, images, handwritten pages, or audio. Ask a question. Emmaus AI intelligently combines RAG, data analysis, vision/OCR, and agentic reasoning to produce verified, cited answers, charts, and reports.
 
 **No login required.** Anonymous workspaces with browser-session persistence.
 
@@ -108,9 +108,9 @@ Fallback order: **Cerebras → Groq → Ollama → Mock**
 | Query Rewrite | Cerebras | Groq | Ollama | gpt-oss-120b |
 | Reranking | Cerebras | Groq | Ollama | gpt-oss-120b |
 | Verification | Cerebras | Groq | Ollama | gpt-oss-120b |
-| Vision | Cerebras | Ollama | Mock | gemma-4-31b |
+| Vision | Groq (qwen3.6-27b) | Ollama (gemma4:31b) | Mock | qwen/qwen3.6-27b |
 | Embedding | Gemini 001 | Ollama | Local | gemini-embedding-001 (3072d) |
-| Speech-to-Text | Sarvam | Deepgram | Groq | saaras:v4 / nova-3 / whisper-large-v3-turbo |
+| Speech-to-Text | Deepgram | Sarvam | Groq | nova-3 / saaras:v4 / whisper-large-v3-turbo |
 
 **STT chain**: Sarvam Saaras v4 (best for Indian languages) → Deepgram Nova-3 (general) → Groq Whisper (fast/cheap)
 
@@ -163,7 +163,7 @@ No `exec()`. 7 allow-listed operations:
 | Orchestration | LangGraph (8-node conditional pipeline) |
 | Database | MongoDB Atlas (Vector Search + Atlas Search) |
 | Media | Cloudinary (or local) |
-| Models | Ollama Cloud (gpt-oss:120b, gemma4:31b), Groq (llama-3.1-8b-instant, llama-3.3-70b-versatile, whisper-large-v3-turbo), Gemini (embedding-001) |
+| Models | Groq (gpt-oss-120b, gpt-oss-20b, qwen3.6-27b vision, whisper-turbo), Ollama Cloud (gpt-oss:120b, gemma4:31b fallback), Jina (embeddings-1024d) |
 | Observability | Langfuse (traces, generation spans, events) |
 | Auth | JWT (HS256) with rotating refresh tokens |
 | Background Jobs | MongoDB-backed durable queue + worker process |
@@ -241,7 +241,7 @@ See `tests/test_resilience.py` for 40+ resilience test cases.
 ## Repository Structure
 
 ```
-vedax-ai/
+        Emmaus-AI/
 ├── apps/
 │   ├── api/                 # FastAPI backend
 │   │   ├── app/

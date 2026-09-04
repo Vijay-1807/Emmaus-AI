@@ -1,13 +1,24 @@
 @import "tailwindcss";
 
+@font-face {
+    font-family: "Helvetica Regular";
+    src: url("https://db.onlinewebfonts.com/t/a64ff11d2c24584c767f6257e880dc65.eot");
+    src: url("https://db.onlinewebfonts.com/t/a64ff11d2c24584c767f6257e880dc65.eot?#iefix")format("embedded-opentype"),
+    url("https://db.onlinewebfonts.com/t/a64ff11d2c24584c767f6257e880dc65.woff2")format("woff2"),
+    url("https://db.onlinewebfonts.com/t/a64ff11d2c24584c767f6257e880dc65.woff")format("woff"),
+    url("https://db.onlinewebfonts.com/t/a64ff11d2c24584c767f6257e880dc65.ttf")format("truetype"),
+    url("https://db.onlinewebfonts.com/t/a64ff11d2c24584c767f6257e880dc65.svg#Helvetica Regular")format("svg");
+}
+
 @theme {
-  --color-bg: #0a0a0f;
-  --color-surface: #12121a;
-  --color-surface-2: #1a1a25;
-  --color-border: #2a2a3a;
-  --color-border-active: #4f46e5;
-  --color-text: #e8e8f0;
-  --color-text-muted: #8888a0;
+  --font-display: "Helvetica Regular", "Inter", system-ui, sans-serif;
+  --color-bg: #faf9ef;
+  --color-surface: rgba(255, 255, 255, 0.62);
+  --color-surface-2: rgba(255, 255, 255, 0.42);
+  --color-border: rgba(0, 0, 0, 0.06);
+  --color-border-active: #6366f1;
+  --color-text: #24231f;
+  --color-text-muted: #6a635d;
   --color-primary: #6366f1;
   --color-primary-hover: #818cf8;
   --color-success: #22c55e;
@@ -28,6 +39,45 @@ html, body {
   box-sizing: border-box;
 }
 
+.glass-panel,
+.bg-surface {
+  border-color: rgba(255, 255, 255, 0.5);
+  background-color: rgba(255, 255, 255, 0.58);
+  box-shadow: 0 12px 40px rgba(77, 63, 54, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(20px) saturate(125%);
+  -webkit-backdrop-filter: blur(20px) saturate(125%);
+}
+
+input:not([type="file"]),
+textarea,
+select,
+.glass-input {
+  border-color: rgba(0, 0, 0, 0.08);
+  background-color: rgba(255, 253, 248, 0.62);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* Kill Chrome's gray autofill paint on dark pills */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: #fff;
+  caret-color: #fff;
+  -webkit-box-shadow: 0 0 0 1000px transparent inset;
+  box-shadow: 0 0 0 1000px transparent inset;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+input:not([type="file"]):focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(36, 35, 31, 0.28);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -44,4 +94,84 @@ html, body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+@keyframes pixel-on {
+  0%, 100% { opacity: 0.12; }
+  50% { opacity: 1; }
+}
+
+@keyframes shimmer-text {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.loading-shimmer {
+  color: transparent;
+  background-image: linear-gradient(90deg, #8d8780 35%, #24231f 50%, #8d8780 65%);
+  background-size: 200% 100%;
+  background-clip: text;
+  animation: shimmer-text 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-shimmer { animation: none; color: #655f59; }
+}
+
+/* Liquid glass bordering (Lumina spec, re-skinned for VedaX) */
+.liquid-glass {
+  background: rgba(255, 255, 255, 0.01);
+  background-blend-mode: luminosity;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: none;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.15) 20%,
+    rgba(255,255,255,0) 40%, rgba(255,255,255,0) 60%,
+    rgba(255,255,255,0.15) 80%, rgba(255,255,255,0.45) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Dark variant: same liquid border, readable over our light Pipo background */
+.liquid-glass-dark {
+  background: rgba(20, 19, 17, 0.78);
+  backdrop-filter: blur(20px) saturate(130%);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  border: none;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12), 0 24px 70px rgba(77, 63, 54, 0.22);
+  position: relative;
+  overflow: hidden;
+}
+.liquid-glass-dark::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.15) 20%,
+    rgba(255,255,255,0) 40%, rgba(255,255,255,0) 60%,
+    rgba(255,255,255,0.15) 80%, rgba(255,255,255,0.45) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
 }

@@ -1,4 +1,5 @@
 import json
+import asyncio
 import time
 from typing import Any, AsyncIterator
 
@@ -37,12 +38,12 @@ class MockProvider:
         json_mode: bool = False,
         ctx: RunContext | None = None,
     ) -> CompletionResult:
-        await time.sleep(0.01)
+        await asyncio.sleep(0.01)
         key = task.value if task and task.value in MOCK_RESPONSES else "default"
         text = MOCK_RESPONSES.get(key)
         if text is None:
             text = (
-                "This is a mock response from VedaX AI's offline provider. "
+                "This is a mock response from Emmaus AI's offline provider. "
                 "Configure OLLAMA_API_KEY or GROQ_API_KEY to enable real model inference.\n\n"
                 "The full agentic pipeline (classification, retrieval, verification, citation) "
                 "executed successfully in offline mode."

@@ -25,6 +25,15 @@ async def index_chunks(
         return 0
     texts = [chunk.content for chunk in chunks]
     vectors = await embedding_service.embed(texts)
+    if len(vectors) != len(chunks):
+        raise ValueError(
+            f"embedding provider returned {len(vectors)} vectors for {len(chunks)} chunks"
+        )
+    descriptor = embedding_service.descriptor
+    expected_dimensions = descriptor.dimensions if descriptor else len(vectors[0])
+    actual_model = descriptor.model if descriptor else embedding_model
+    if any(len(vector) != expected_dimensions for vector in vectors):
+        raise ValueError(f"embedding dimensions do not match expected size {expected_dimensions}")
     now = datetime.now(timezone.utc)
     inserted = 0
     for start in range(0, len(chunks), BATCH_SIZE):
@@ -46,7 +55,9 @@ async def index_chunks(
                 "chunk_type": chunk.chunk_type,
                 "metadata": chunk.metadata,
                 "embedding": vector,
-                "embedding_model": embedding_model,
+                "embedding_model": actual_model,
+                "embedding_provider": descriptor.backend if descriptor else "unknown",
+                "embedding_dimensions": len(vector),
                 "created_at": now,
             }
             for chunk, vector in zip(batch_chunks, batch_vectors)

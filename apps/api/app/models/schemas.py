@@ -8,6 +8,7 @@ class UserOut(BaseModel):
     id: str
     email: EmailStr
     name: str
+    is_anonymous: bool = False
     created_at: datetime
 
 
@@ -186,6 +187,7 @@ class EvalRunSummary(BaseModel):
     id: str
     config: dict[str, Any]
     status: Literal["running", "completed", "failed"]
+    error: str | None = None
     num_cases: int
     retrieval_recall_at_5: float | None = None
     retrieval_mrr: float | None = None

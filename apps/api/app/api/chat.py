@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.agents.orchestrator import run_investigation
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.post("/stream")
-async def chat_stream(payload: ChatRequest, user: dict = Depends(get_current_user)):
+async def chat_stream(payload: ChatRequest, request: Request, user: dict = Depends(get_current_user)):
     await require_workspace(payload.workspace_id, user)
     if not payload.message.strip() and not payload.audio_media_id:
         raise HTTPException(status_code=400, detail="message or audio input required")
@@ -27,6 +27,8 @@ async def chat_stream(payload: ChatRequest, user: dict = Depends(get_current_use
             attachment_ids=payload.attachment_ids,
             audio_media_id=payload.audio_media_id,
         ):
+            if await request.is_disconnected():
+                break
             yield f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
         yield "data: [STREAM_END]\n\n"
 

@@ -3,12 +3,151 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import ast
+import operator
+
 import pandas as pd
 
 from app.providers.base import RunContext, TaskType
 from app.providers.registry import get_model_router
 
 logger = logging.getLogger("vedax.data")
+
+
+_FILTER_OPS = {
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+    ast.Gt: operator.gt,
+    ast.GtE: operator.ge,
+    ast.Lt: operator.lt,
+    ast.LtE: operator.le,
+}
+
+_SAFE_NAMES: set[str] = set()
+_SAFE_FUNCTIONS = {"abs": abs, "round": round, "min": min, "max": max, "sum": sum, "len": len}
+
+# Read-only pandas Series accessors the LLM is allowed to use
+# (e.g. df['Company'].str.startswith('S')). All are non-mutating.
+_SAFE_STR_METHODS = {
+    "startswith", "endswith", "contains", "lower", "upper", "strip",
+    "lstrip", "rstrip", "replace", "split", "len", "slice", "extract",
+    "count", "find", "findall",
+}
+_SAFE_DT_ATTRS = {
+    "year", "month", "day", "hour", "minute", "weekday", "date",
+    "quarter", "week", "dayofyear",
+}
+_COUNT_LIKE_NAMES = {"row_count", "count", "n", "num_rows", "total", "total_rows"}
+
+
+def _safe_eval(expr: str, df: pd.DataFrame) -> Any:
+    """Evaluate a limited arithmetic expression on DataFrame columns only."""
+    tree = ast.parse(expr, mode="eval")
+
+    def _eval_node(node: ast.AST) -> Any:
+        if isinstance(node, ast.Expression):
+            return _eval_node(node.body)
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, ast.Name):
+            if node.id in _SAFE_NAMES:
+                raise ValueError(f"bare name {node.id!r} not allowed in compute expr")
+            if node.id == "df":
+                return df
+            if node.id in df.columns:
+                return df[node.id]
+            if node.id in _SAFE_FUNCTIONS:
+                return _SAFE_FUNCTIONS[node.id]
+            raise ValueError(f"unknown name {node.id!r}")
+        if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and node.value.id == "df":
+                return getattr(df, node.attr)
+            import pandas as _pd
+
+            # Chained safe accessor: df['col'].str.startswith('S'),
+            # df['date'].dt.year — read-only pandas ops only.
+            if isinstance(node.value, ast.Attribute) and node.value.attr in ("str", "dt"):
+                series = _eval_node(node.value.value)
+                if isinstance(series, _pd.Series):
+                    allowed = _SAFE_STR_METHODS if node.value.attr == "str" else _SAFE_DT_ATTRS
+                    if node.attr in allowed:
+                        accessor = series.str if node.value.attr == "str" else series.dt
+                        return getattr(accessor, node.attr)
+                raise ValueError(f"attribute access not allowed: {ast.dump(node)}")
+            # Bare accessor object: df['col'].str
+            if node.attr in ("str", "dt"):
+                series = _eval_node(node.value)
+                if isinstance(series, _pd.Series):
+                    return series.str if node.attr == "str" else series.dt
+            raise ValueError(f"attribute access not allowed: {ast.dump(node)}")
+        if isinstance(node, ast.Subscript):
+            value = _eval_node(node.value)
+            slice_val = _eval_node(node.slice) if not isinstance(node.slice, ast.Slice) else slice(
+                _eval_node(node.slice.lower) if node.slice.lower else None,
+                _eval_node(node.slice.upper) if node.slice.upper else None,
+                _eval_node(node.slice.step) if node.slice.step else None,
+            )
+            return value[slice_val]
+        if isinstance(node, ast.BinOp):
+            left = _eval_node(node.left)
+            right = _eval_node(node.right)
+            op_type = type(node.op)
+            if op_type is ast.Add:
+                return left + right
+            if op_type is ast.Sub:
+                return left - right
+            if op_type is ast.Mult:
+                return left * right
+            if op_type is ast.Div:
+                return left / right
+            if op_type is ast.FloorDiv:
+                return left // right
+            if op_type is ast.Mod:
+                return left % right
+            if op_type is ast.Pow:
+                return left ** right
+            raise ValueError(f"unsupported operator: {op_type.__name__}")
+        if isinstance(node, ast.UnaryOp):
+            operand = _eval_node(node.operand)
+            if isinstance(node.op, ast.USub):
+                return -operand
+            if isinstance(node.op, ast.UAdd):
+                return +operand
+            if isinstance(node.op, ast.Not):
+                return not operand
+            raise ValueError(f"unsupported unary: {type(node.op).__name__}")
+        if isinstance(node, ast.Compare):
+            left = _eval_node(node.left)
+            for op, comparator in zip(node.ops, node.comparators):
+                right = _eval_node(comparator)
+                op_type = type(op)
+                if op_type not in _FILTER_OPS:
+                    raise ValueError(f"unsupported comparison: {op_type.__name__}")
+                result = _FILTER_OPS[op_type](left, right)
+                if not isinstance(result, bool) and not hasattr(result, "__iter__"):
+                    if not result:
+                        return False
+                elif hasattr(result, "__iter__") and not all(result):
+                    return False
+            return True
+        if isinstance(node, ast.Call):
+            func = _eval_node(node.func)
+            if not callable(func):
+                raise ValueError(f"not callable: {node.func}")
+            args = [_eval_node(a) for a in node.args]
+            return func(*args)
+        if isinstance(node, ast.IfExp):
+            test = _eval_node(node.test)
+            if isinstance(test, bool) and test:
+                return _eval_node(node.body)
+            elif hasattr(test, "__iter__"):
+                import pandas as _pd
+                if isinstance(test, _pd.Series) and test.any():
+                    return _eval_node(node.body)
+            return _eval_node(node.orelse)
+        raise ValueError(f"unsupported expression: {ast.dump(node)}")
+
+    return _eval_node(tree)
 
 
 FilterOp = Literal["eq", "ne", "gt", "gte", "lt", "lte", "in", "contains", "startswith", "endswith"]
@@ -93,6 +232,8 @@ Available operations:
 
 Rules:
 - Operations execute in sequence on the DataFrame.
+- For row counts per group use group_by with a count metric, e.g. {"row_count": "count"}.
+- compute exprs may use Series string/datetime accessors, e.g. df['Company'].str.startswith('S'), df['Date'].dt.year.
 - Final result should answer the question.
 - Output JSON: {{"steps": [...], "chart_type": "bar|line|pie|area|scatter|none", "chart_title": "...", "x_label": "...", "y_label": "..."}}
 - If the question cannot be answered with these operations, include an "explanation" field instead of "steps".
@@ -126,8 +267,31 @@ def _apply_filter(df: pd.DataFrame, step: FilterStep) -> pd.DataFrame:
 
 
 def _apply_group_by(df: pd.DataFrame, step: GroupByStep) -> pd.DataFrame:
-    agg_map = {col: func for col, func in step.metrics.items()}
-    return df.groupby(step.by, as_index=False).agg(agg_map)
+    value_columns = [column for column in df.select_dtypes(include="number").columns if column not in step.by]
+    named_aggregations: dict[str, tuple[str, str]] = {}
+    row_count_outputs: list[str] = []
+    for output_column, func in step.metrics.items():
+        if output_column in df.columns and output_column not in step.by:
+            named_aggregations[output_column] = (output_column, func)
+        elif func == "count" and output_column.lower() in _COUNT_LIKE_NAMES:
+            # Row-count semantics: resolved from group sizes below.
+            row_count_outputs.append(output_column)
+        elif len(value_columns) == 1:
+            named_aggregations[output_column] = (value_columns[0], func)
+        else:
+            raise ValueError(f"cannot infer source column for metric {output_column!r}")
+    result: pd.DataFrame | None = None
+    if named_aggregations:
+        result = df.groupby(step.by, as_index=False).agg(**named_aggregations)
+    if row_count_outputs:
+        sizes = df.groupby(step.by).size().reset_index(name="__n__")
+        for output_column in row_count_outputs:
+            sizes[output_column] = sizes["__n__"]
+        sizes = sizes[[*step.by, *row_count_outputs]]
+        result = sizes if result is None else result.merge(sizes, on=step.by, how="left")
+    if result is None:
+        result = df.groupby(step.by).size().reset_index(name="count")
+    return result
 
 
 def _apply_sort(df: pd.DataFrame, step: SortStep) -> pd.DataFrame:
@@ -139,8 +303,7 @@ def _apply_select(df: pd.DataFrame, step: SelectStep) -> pd.DataFrame:
 
 
 def _apply_compute(df: pd.DataFrame, step: ComputeStep) -> pd.DataFrame:
-    allowed = {"df": df, "pd": pd}
-    df[step.name] = eval(step.expr, {"__builtins__": {}}, allowed)
+    df[step.name] = _safe_eval(step.expr, df)
     return df
 
 
@@ -164,8 +327,11 @@ def _apply_compare_periods(df: pd.DataFrame, step: ComparePeriodsStep) -> pd.Dat
 def _apply_detect_anomaly(df: pd.DataFrame, step: DetectAnomalyStep) -> pd.DataFrame:
     col = df[step.column]
     if step.method == "zscore":
-        z = (col - col.mean()) / col.std(ddof=0).replace(0, pd.NA)
-        df["_is_anomaly"] = z.abs() > step.threshold
+        std = col.std(ddof=0)
+        z = (col - col.mean()) / std if std else pd.Series(0.0, index=col.index)
+        df["_is_anomaly"] = pd.Series(
+            [bool(value) for value in (z.abs() >= step.threshold)], index=df.index, dtype=object
+        )
         df["_zscore"] = z
     elif step.method == "iqr":
         q1, q3 = col.quantile(0.25), col.quantile(0.75)
@@ -196,10 +362,40 @@ def _build_step(step_dict: dict) -> Step:
 
 def _execute_plan(df: pd.DataFrame, steps: list[Step]) -> pd.DataFrame:
     for step in steps:
-        stype = step.__class__.__name__.replace("Step", "").lower()
-        func, _ = STEP_DISPATCH[stype]
+        dispatch = next(
+            ((func, cls) for func, cls in STEP_DISPATCH.values() if isinstance(step, cls)),
+            None,
+        )
+        if dispatch is None:
+            raise ValueError(f"unsupported step: {type(step).__name__}")
+        func, _ = dispatch
         df = func(df, step)
     return df
+
+
+def execute_plan(records: list[dict[str, Any]], plan: dict[str, Any]) -> dict[str, Any]:
+    """Execute the small legacy operation format used by API resilience callers."""
+    df = pd.DataFrame(records)
+    try:
+        for operation in plan.get("ops", []):
+            op = operation.get("op")
+            if op == "filter":
+                df = _apply_filter(
+                    df,
+                    FilterStep(column=operation["field"], op="eq", value=operation.get("value")),
+                )
+            elif op == "group_by":
+                field = operation["field"]
+                value_field = operation["value_field"]
+                df = _apply_group_by(
+                    df,
+                    GroupByStep(by=[field], metrics={value_field: operation.get("agg", "sum")}),
+                )
+            else:
+                return {"data": [], "error": f"unsupported operation: {op}"}
+        return {"data": df.to_dict(orient="records")}
+    except (KeyError, TypeError, ValueError) as exc:
+        return {"data": [], "error": str(exc)}
 
 
 def _schema_text(columns: list[dict], sample_rows: list[dict]) -> tuple[str, str]:

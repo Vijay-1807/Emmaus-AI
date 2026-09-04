@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -6,18 +7,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "VedaX AI"
+    app_name: str = "Emmaus AI"
     environment: str = "development"
     api_prefix: str = "/api"
 
     secret_key: str = "dev-secret-change-me"
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.environment == "production" and self.secret_key == "dev-secret-change-me":
+            raise ValueError("SECRET_KEY must be set to a secure value in production")
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 14
 
     mongodb_uri: str = "mongodb://localhost:27017"
     mongodb_db: str = "vedax"
 
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # Cerebras (PRIMARY provider)
     cerebras_api_key: str = ""
@@ -29,8 +34,13 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
     groq_chat_model: str = "openai/gpt-oss-120b"
-    groq_fast_model: str = "llama-3.1-8b-instant"
+    # llama-3.1-8b-instant was deprecated by Groq on 2026-08-16;
+    # official replacement is openai/gpt-oss-20b.
+    groq_fast_model: str = "openai/gpt-oss-20b"
     groq_stt_model: str = "whisper-large-v3-turbo"
+    # llama-4-scout was deprecated by Groq on 2026-07-17;
+    # qwen3.6-27b is the live multimodal model (vision + JSON mode + tools).
+    groq_vision_model: str = "qwen/qwen3.6-27b"
 
     # Ollama Cloud (TERTIARY fallback)
     ollama_api_key: str = ""
@@ -50,14 +60,14 @@ class Settings(BaseSettings):
     deepgram_stt_model: str = "nova-3"
 
     # Embeddings
-    embedding_provider: str = "gemini"
+    embedding_provider: str = "jina"
     gemini_api_key: str = ""
     gemini_embedding_model: str = "gemini-embedding-001"
     gemini_embedding_dimensions: int = 3072
-    embedding_base_url: str = "https://ollama.com/v1"
+    embedding_base_url: str = ""
     embedding_api_key: str = ""
-    embedding_model: str = "nomic-embed-text"
-    embedding_dimensions: int = 768
+    embedding_model: str = "jina-embeddings-v5-omni-small"
+    embedding_dimensions: int = 1024
     local_embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     media_storage: str = "auto"
@@ -94,6 +104,10 @@ class Settings(BaseSettings):
     @property
     def has_ollama(self) -> bool:
         return bool(self.ollama_api_key)
+
+    @property
+    def has_jina(self) -> bool:
+        return bool(self.embedding_api_key)
 
     @property
     def has_sarvam(self) -> bool:

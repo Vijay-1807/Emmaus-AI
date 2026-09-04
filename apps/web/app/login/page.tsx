@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, setToken } from "@/lib/api";
+import { apiFetch, storeSession } from "@/lib/api";
+import { GradientBackground } from "@/components/ui/pipo";
+
+type TokenResponse = { access_token: string; refresh_token: string };
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,17 +21,19 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
+      let data: TokenResponse;
       if (isSignUp) {
-        await apiFetch("/api/auth/register", {
+        data = await apiFetch<TokenResponse>("/api/auth/register", {
           method: "POST",
           body: JSON.stringify({ email, password, name }),
         });
+      } else {
+        data = await apiFetch<TokenResponse>("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        });
       }
-      const data = await apiFetch<{ access_token: string }>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      setToken(data.access_token);
+      storeSession(data);
       router.push("/dashboard");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Authentication failed";
@@ -39,46 +44,50 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#faf9ef] px-4">
+      <GradientBackground className="fixed inset-0" />
+      <div className="relative z-10 w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold">VedaX AI</h1>
+          <h1 className="text-2xl font-bold">Emmaus AI</h1>
           <p className="text-text-muted mt-2 text-sm">
             {isSignUp ? "Create your account" : "Sign in to your account"}
           </p>
         </div>
-        <form onSubmit={handleSubmit} className="bg-surface border border-border rounded-xl p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="glass-panel space-y-4 rounded-2xl border p-6">
           {isSignUp && (
             <div>
-              <label className="block text-sm text-text-muted mb-1">Name</label>
+              <label htmlFor="login-name" className="block text-sm text-text-muted mb-1">Name</label>
               <input
+                id="login-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-text text-sm focus:outline-none focus:border-primary"
+                className="w-full px-3 py-2 glass-input rounded-lg text-text text-sm focus:outline-none focus:border-primary"
                 required
               />
             </div>
           )}
           <div>
-            <label className="block text-sm text-text-muted mb-1">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-text text-sm focus:outline-none focus:border-primary"
-              required
-            />
+            <label htmlFor="login-email" className="block text-sm text-text-muted mb-1">Email</label>
+              <input
+                id="login-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2 glass-input rounded-lg text-text text-sm focus:outline-none focus:border-primary"
+                required
+              />
           </div>
           <div>
-            <label className="block text-sm text-text-muted mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-text text-sm focus:outline-none focus:border-primary"
-              required
-            />
+            <label htmlFor="login-password" className="block text-sm text-text-muted mb-1">Password</label>
+              <input
+                id="login-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2 glass-input rounded-lg text-text text-sm focus:outline-none focus:border-primary"
+                required
+              />
           </div>
           {error && <div className="text-error text-sm">{error}</div>}
           <button

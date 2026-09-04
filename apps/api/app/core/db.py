@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from pymongo.asynchronous import AsyncMongoClient
+from pymongo.asynchronous.mongo_client import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
 from app.core.config import get_settings
@@ -27,6 +27,7 @@ MONGO_INDEXES: dict[str, list[dict]] = {
     "document_chunks": [
         {"name": "doc_idx", "key": [("document_id", 1)]},
         {"name": "workspace_idx", "key": [("workspace_id", 1)]},
+        {"name": "content_text", "key": [("content", "text")]},
     ],
     "datasets": [
         {"name": "workspace_idx", "key": [("workspace_id", 1), ("created_at", -1)]},
@@ -56,6 +57,9 @@ MONGO_INDEXES: dict[str, list[dict]] = {
     "telegram_links": [
         {"name": "chat_unique", "key": [("telegram_chat_id", 1)], "unique": True},
     ],
+    "telegram_updates": [
+        {"name": "update_unique", "key": [("update_id", 1)], "unique": True},
+    ],
 }
 
 
@@ -72,7 +76,8 @@ async def connect_db() -> None:
 async def _ensure_indexes() -> None:
     for collection, indexes in MONGO_INDEXES.items():
         col = _db[collection]
-        existing = {info["name"] async for info in col.list_indexes()}
+        cursor = await col.list_indexes()
+        existing = {info["name"] async for info in cursor}
         for spec in indexes:
             if spec["name"] not in existing:
                 options = {"name": spec["name"]}
@@ -84,12 +89,12 @@ async def _ensure_indexes() -> None:
 async def close_db() -> None:
     global _client, _db
     if _client is not None:
-        _client.close()
+        await _client.close()
     _client = None
     _db = None
 
 
-def get_db() -> AsyncIOMotorDatabase:
+def get_db() -> AsyncDatabase:
     if _db is None:
         raise RuntimeError("database not initialized")
     return _db

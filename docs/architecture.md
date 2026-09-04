@@ -1,6 +1,6 @@
 # Architecture
 
-VedaX AI is a multimodal agentic knowledge and analysis platform that combines RAG, data analysis, vision/OCR, and agentic reasoning.
+Emmaus AI is a multimodal agentic knowledge and analysis platform that combines RAG, data analysis, vision/OCR, and agentic reasoning.
 
 ## System Overview
 

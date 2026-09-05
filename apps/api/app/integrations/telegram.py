@@ -33,6 +33,26 @@ _SOURCE_SECTION_RE = re.compile(r"\n+Sources?:\s*\n[\s\S]*$", re.IGNORECASE)
 _REFERENCE_SECTION_RE = re.compile(r"\n+References?:\s*\n[\s\S]*$", re.IGNORECASE)
 
 
+_IMAGE_INTENT_RE = re.compile(
+    r"\b(generate|create|make|draw|need|want).{0,30}\bimages?\b"
+    r"|\bimages?\b(.{0,20}\b(of|for|please)\b|[.!?,]*$)",
+    re.IGNORECASE,
+)
+
+
+def maybe_add_image_hint(question: str, has_attachments: bool) -> str:
+    """Nudge users toward /generate when plain text asks for an image.
+
+    Plain-text image wishes otherwise trigger a full RAG investigation,
+    which is slow and never returns a picture.
+    """
+    if has_attachments:
+        return ""
+    if _IMAGE_INTENT_RE.search(question or ""):
+        return "\n\n🎨 _Want me to create this as an image? Use /generate <prompt>_"
+    return ""
+
+
 def clean_answer_for_telegram(text: str) -> str:
     """Mirror the website's answer cleaning so Telegram gets the same polish."""
     cleaned = _CITATION_TOKEN_RE.sub("", text)
@@ -191,10 +211,9 @@ async def send_message(
     chat_id: int, text: str, reply_markup: dict | None = None
 ) -> None:
     chunks = _chunk_message(text)
-    last_chunk = chunks[-1] if chunks else text
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks):
         payload: dict = {"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"}
-        if reply_markup is not None and chunk is last_chunk:
+        if reply_markup is not None and i == len(chunks) - 1:
             payload["reply_markup"] = reply_markup
         try:
             await telegram_request("sendMessage", payload)
@@ -294,9 +313,9 @@ async def check_rate_limit(link: dict) -> str | None:
                     link["locked"] = False
                 else:
                     # Another process cleared it
-                    return "⏳ I'm still working on your previous question — one moment…"
+                    return "⏳ Still working on your previous question — one moment…"
             else:
-                return "⏳ I'm still working on your previous question — one moment…"
+                return "⏳ Still working on your previous question — one moment…"
         else:
             return "⏳ I'm still working on your previous question — one moment…"
     
@@ -343,8 +362,12 @@ async def set_locked(link_id: str, locked: bool) -> None:
     await db.telegram_links.update_one({"_id": link_id}, {"$set": {"locked": locked}})
 
 
-async def claim_chat_lock(link_id: str, lease_seconds: int = 180) -> str | None:
-    """Atomically claim one chat; leases recover after worker/process crashes."""
+async def claim_chat_lock(link_id: str, lease_seconds: int = 320) -> str | None:
+    """Atomically claim one chat; leases recover after worker/process crashes.
+
+    Lease (320s) covers the 300s investigation timeout so the lock cannot
+    expire mid-investigation and allow a concurrent overlapping run.
+    """
     db = get_db()
     token = uuid.uuid4().hex
     result = await db.telegram_links.update_one(
@@ -372,6 +395,22 @@ async def release_chat_lock(link_id: str, token: str) -> None:
         {"_id": link_id, "lock_token": token},
         {"$set": {"locked": False}, "$unset": {"lock_token": "", "lock_expires_at": ""}},
     )
+
+
+def _is_locked(link: dict) -> bool:
+    """True only if a lock is held AND its lease has not expired.
+
+    The link dict is a snapshot taken at message start, so a boolean-only
+    check would block /new and /clear even when the lock already expired.
+    """
+    if not link.get("locked"):
+        return False
+    expires = link.get("lock_expires_at")
+    if expires is None:
+        return True
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return expires > now()
 
 
 async def get_or_create_link(chat_id: int, from_user: dict) -> dict:
@@ -619,7 +658,7 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
         await send_message(chat_id, HELP_TEXT)
         return True
     if cmd == "/new":
-        if link.get("locked"):
+        if _is_locked(link):
             await send_message(chat_id, "⏳ Still working on your previous question — try /new in a moment.")
             return True
         await db.telegram_links.update_one(
@@ -629,7 +668,7 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
         await send_message(chat_id, "💬 Fresh chat started — previous context cleared.")
         return True
     if cmd == "/clear":
-        if link.get("locked"):
+        if _is_locked(link):
             await send_message(chat_id, "⏳ Still working on something — try /clear in a moment.")
             return True
         # Wipe all workspace data
@@ -670,7 +709,7 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
             chat_id,
             "🕘 *Recent investigations*\n\n"
             + ("\n".join(lines) if lines else "Nothing yet — ask me anything!")
-            + ("\n\n💬 Ask again to revisit any topic." if lines else ""),
+            + ("\n\n💬 Ask again to revisit any topic. Use /clear to wipe history." if lines else ""),
         )
         return True
     if cmd == "/status":
@@ -720,7 +759,7 @@ async def handle_callback(update: dict) -> None:
     if not link:
         return
     if data == "newchat":
-        if link.get("locked"):
+        if _is_locked(link):
             await send_message(chat_id, "⏳ Still working on your previous question — try /new in a moment.")
             return
         await db.telegram_links.update_one(
@@ -877,6 +916,7 @@ async def handle_update(update: dict) -> None:
         await release_chat_lock(link["_id"], lock_token)
     elapsed = (now() - start_time).total_seconds()
     answer_text = clean_answer_for_telegram(final_answer or "Something went wrong. Please try again.")
+    answer_text += maybe_add_image_hint(text, bool(attachment_ids or audio_media_id))
     if elapsed > 5:
         answer_text += f"\n\n_Solved in {elapsed:.1f}s_"
     await send_message(

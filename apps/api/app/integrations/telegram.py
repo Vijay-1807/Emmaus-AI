@@ -33,24 +33,43 @@ _SOURCE_SECTION_RE = re.compile(r"\n+Sources?:\s*\n[\s\S]*$", re.IGNORECASE)
 _REFERENCE_SECTION_RE = re.compile(r"\n+References?:\s*\n[\s\S]*$", re.IGNORECASE)
 
 
-_IMAGE_INTENT_RE = re.compile(
-    r"\b(generate|create|make|draw|need|want).{0,30}\bimages?\b"
-    r"|\bimages?\b(.{0,20}\b(of|for|please)\b|[.!?,]*$)",
+# Strong: explicit creation verb + image noun ("draw me a cat" with a noun),
+# bare draw/paint/imagine + object ("paint a mountain", "imagine a city"),
+# or a bare image noun phrase ("photos of beaches please", "…moon image").
+_STRONG_IMAGE_RE = re.compile(
+    r"\b(generate|create|make|draw|paint|design)\b"
+    r".{0,40}\b(images?|pictures?|photos?|paintings?|drawings?|artworks?|wallpapers?|logos?|posters?|art)\b"
+    r"|\b(draw|paint|imagine)\b\s+(me\s+)?(a|an|the|some|my)\b"
+    r"|\b(images?|pictures?|photos?)\b.{0,20}\b(of|for|please)\b"
+    r"|\b(images?|pictures?)\b[.!?,]*$",
+    re.IGNORECASE,
+)
+
+# Question words — if present, it's a question about sources, not an image wish.
+_QUESTION_RE = re.compile(
+    r"\?|\b(who|what|when|where|why|how|which|whom|whose|is|are|was|were|do|does|did|"
+    r"can|could|should|explain|summar\w*|analyz\w*|tell|describe|list|show|find|compare)\b",
     re.IGNORECASE,
 )
 
 
-def maybe_add_image_hint(question: str, has_attachments: bool) -> str:
-    """Nudge users toward /generate when plain text asks for an image.
+def classify_image_request(question: str, has_attachments: bool) -> str:
+    """Classify plain-text input for image intent.
 
-    Plain-text image wishes otherwise trigger a full RAG investigation,
-    which is slow and never returns a picture.
+    Returns "strong" (generate directly), "weak" (investigate + hint),
+    or "none". Attachments always win — e.g. "generate alt text" with a
+    photo attached must go to vision, never to image generation.
     """
     if has_attachments:
-        return ""
-    if _IMAGE_INTENT_RE.search(question or ""):
-        return "\n\n🎨 _Want me to create this as an image? Use /generate <prompt>_"
-    return ""
+        return "none"
+    q = (question or "").strip()
+    if not q:
+        return "none"
+    if _STRONG_IMAGE_RE.search(q):
+        return "strong"
+    if len(q.split()) > 3 and not _QUESTION_RE.search(q):
+        return "weak"
+    return "none"
 
 
 def clean_answer_for_telegram(text: str) -> str:
@@ -85,7 +104,8 @@ WELCOME_TEXT = (
     "• \"Summarize my uploaded documents\"\n"
     "• \"What are the key insights in my dataset?\"\n"
     "• \"Analyze this photo\"\n\n"
-    "📎 *Tips:* Attach a file with a caption, or use /generate <prompt> for AI images.\n\n"
+    "📎 *Tips:* Attach a file with a caption, use /generate <prompt> for AI images, "
+    "or just describe one (\"draw me a cat\") and I'll create it.\n\n"
     "Commands: /new  /stop  /clear  /history  /status  /generate  /help"
 )
 
@@ -314,9 +334,9 @@ async def check_rate_limit(link: dict) -> str | None:
                     link["locked"] = False
                 else:
                     # Another process cleared it
-                    return "⏳ Still working on your previous question — one moment…"
+                    return "⏳ I'm still working on your previous question — one moment…"
             else:
-                return "⏳ Still working on your previous question — one moment…"
+                return "⏳ I'm still working on your previous question — one moment…"
         else:
             return "⏳ I'm still working on your previous question — one moment…"
     
@@ -353,7 +373,7 @@ async def check_rate_limit(link: dict) -> str | None:
         recent = [t for t in (updated_link or {}).get("msg_times", []) if now_ts - t < RATE_WINDOW_SECONDS]
         if len(recent) >= MAX_MSGS_PER_MINUTE:
             wait = int(RATE_WINDOW_SECONDS - (now_ts - min(recent))) + 1
-            return f"🐢 Too many messages at once — try again in ~{wait}s."
+            return f"🐢 Slow down — too many messages at once, try again in ~{wait}s."
     
     return None
 
@@ -608,6 +628,46 @@ async def extract_question(
     return text, attachment_ids, audio_media_id
 
 
+async def _generate_and_send_image(chat_id: int, prompt: str) -> None:
+    """Run FLUX.1 generation and deliver the photo. All errors are user-facing."""
+    await send_action(chat_id, "upload_photo")
+    try:
+        from app.services.image_service import get_image_service
+        import base64
+
+        service = get_image_service()
+        result = await service.generate(prompt=prompt)
+
+        if not result.success:
+            await send_message(chat_id, f"❌ Image generation failed: {result.error}")
+            return
+
+        # Decode base64 image
+        image_data = base64.b64decode(result.image_base64)
+
+        # Send photo via Telegram API
+        settings = get_settings()
+        async with httpx.AsyncClient(timeout=60) as client:
+            # Upload the image
+            files = {"photo": ("generated_image.png", image_data, "image/png")}
+            # Escape Markdown special chars in user prompt for caption
+            safe_prompt = re.sub(r"([*_`\[\]])", r"\\\1", prompt[:200])
+            payload = {
+                "chat_id": chat_id,
+                "caption": f"🎨 Generated Image\n\nPrompt: {safe_prompt}",
+            }
+            response = await client.post(
+                f"{API_BASE}/bot{settings.telegram_bot_token}/sendPhoto",
+                data=payload,
+                files=files,
+            )
+            response.raise_for_status()
+
+    except Exception as exc:
+        logger.error("Telegram image generation failed: %s", exc, exc_info=True)
+        await send_message(chat_id, "❌ Image generation failed — please try again or use a different prompt.")
+
+
 async def handle_command(chat_id: int, link: dict, command: str) -> bool:
     """Returns True if the text was a command (handled, skip investigation)."""
     db = get_db()
@@ -631,7 +691,6 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
             return True
         
         # Check if Cloudflare is configured
-        from app.core.config import get_settings
         settings = get_settings()
         if not settings.has_cloudflare:
             await send_message(
@@ -640,44 +699,8 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
                 "Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to enable this feature.",
             )
             return True
-        
-        # Generate image
-        await send_action(chat_id, "upload_photo")
-        try:
-            from app.services.image_service import get_image_service
-            import base64
-            
-            service = get_image_service()
-            result = await service.generate(prompt=prompt)
-            
-            if not result.success:
-                await send_message(chat_id, f"❌ Image generation failed: {result.error}")
-                return True
-            
-            # Decode base64 image
-            image_data = base64.b64decode(result.image_base64)
-            
-            # Send photo via Telegram API
-            settings = get_settings()
-            async with httpx.AsyncClient(timeout=60) as client:
-                # Upload the image
-                files = {"photo": ("generated_image.png", image_data, "image/png")}
-                # Escape Markdown special chars in user prompt for caption
-                safe_prompt = re.sub(r"([*_`\[\]])", r"\\\1", prompt[:200])
-                payload = {
-                    "chat_id": chat_id,
-                    "caption": f"🎨 Generated Image\n\nPrompt: {safe_prompt}",
-                }
-                response = await client.post(
-                    f"{API_BASE}/bot{settings.telegram_bot_token}/sendPhoto",
-                    data=payload,
-                    files=files,
-                )
-                response.raise_for_status()
-            
-        except Exception as exc:
-            logger.error("Telegram image generation failed: %s", exc, exc_info=True)
-            await send_message(chat_id, "❌ Image generation failed — please try again or use a different prompt.")
+
+        await _generate_and_send_image(chat_id, prompt)
         return True
     if cmd == "/help":
         await send_message(chat_id, HELP_TEXT)
@@ -866,6 +889,39 @@ async def handle_update(update: dict) -> None:
         await send_message(chat_id, limited)
         return
 
+    await send_action(chat_id, "typing")
+    try:
+        text, attachment_ids, audio_media_id = await extract_question(
+            message, workspace_id, link["user_id"], chat_id=chat_id
+        )
+        if not text and not attachment_ids and not audio_media_id:
+            await send_message(
+                chat_id,
+                "⚠️ I can't process this message type yet. "
+                "I understand: *text, photos, documents (PDF/DOCX/CSV/XLSX), and voice notes*. "
+                "Try sending one of those!"
+            )
+            return
+        if not text:
+            text = "Explain this."
+    except Exception as exc:
+        await send_message(chat_id, "⚠️ Could not process that attachment — please try again.")
+        return
+
+    # Image-intent routing BEFORE the RAG lock: strong wishes generate
+    # directly (seconds), weak ones investigate with a /generate hint.
+    image_mode = classify_image_request(text, bool(attachment_ids or audio_media_id))
+    if image_mode == "strong" and get_settings().has_cloudflare:
+        # Hold the single-flight lock if free so indicators don't interleave,
+        # but never block image requests on a slow RAG run.
+        gen_token = await claim_chat_lock(link["_id"])
+        try:
+            await _generate_and_send_image(chat_id, text)
+        finally:
+            if gen_token:
+                await release_chat_lock(link["_id"], gen_token)
+        return
+
     lock_token = await claim_chat_lock(link["_id"])
     if not lock_token:
         # Force-clear stale locks older than 5 minutes so user isn't stuck forever
@@ -879,28 +935,8 @@ async def handle_update(update: dict) -> None:
             await release_chat_lock(link["_id"], stale.get("lock_token", ""))
             lock_token = await claim_chat_lock(link["_id"])
         if not lock_token:
-            await send_message(chat_id, "⏳ Still working on your previous question — try again in ~30s.")
+            await send_message(chat_id, "⏳ Still working on your previous question — send /stop to cancel it, or try again in ~30s.")
             return
-    await send_action(chat_id, "typing")
-    try:
-        text, attachment_ids, audio_media_id = await extract_question(
-            message, workspace_id, link["user_id"], chat_id=chat_id
-        )
-        if not text and not attachment_ids and not audio_media_id:
-            await send_message(
-                chat_id,
-                "⚠️ I can't process this message type yet. "
-                "I understand: *text, photos, documents (PDF/DOCX/CSV/XLSX), and voice notes*. "
-                "Try sending one of those!"
-            )
-            await release_chat_lock(link["_id"], lock_token)
-            return
-        if not text:
-            text = "Explain this."
-    except Exception as exc:
-        await send_message(chat_id, "⚠️ Could not process that attachment — please try again.")
-        await release_chat_lock(link["_id"], lock_token)
-        return
 
     stop_typing = asyncio.Event()
     typing_task = asyncio.create_task(_typing_loop(chat_id, stop_typing))
@@ -955,7 +991,11 @@ async def handle_update(update: dict) -> None:
         await release_chat_lock(link["_id"], lock_token)
     elapsed = (now() - start_time).total_seconds()
     answer_text = clean_answer_for_telegram(final_answer or "Something went wrong. Please try again.")
-    answer_text += maybe_add_image_hint(text, bool(attachment_ids or audio_media_id))
+    if image_mode == "weak":
+        answer_text += "\n\n🎨 _If you wanted this as an image, use /generate <prompt>_"
+    if image_mode == "strong":
+        # Cloudflare wasn't configured so this ran as a normal investigation.
+        answer_text += "\n\n🎨 _Tip: set up image generation to create pictures directly with /generate <prompt>_"
     if elapsed > 5:
         answer_text += f"\n\n_Solved in {elapsed:.1f}s_"
     await send_message(

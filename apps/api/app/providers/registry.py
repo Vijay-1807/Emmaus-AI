@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from typing import Any
@@ -18,6 +19,20 @@ from app.providers.mock import MockProvider
 from app.providers.ollama import OllamaProvider
 
 logger = logging.getLogger("vedax.router")
+
+# Per-provider concurrency caps for non-streaming calls. Bursts of parallel
+# fast-model calls (classify/rewrite/rerank/verify across concurrent
+# investigations) otherwise stampede free-tier TPM limits into 429 storms.
+_SEMAPHORES: dict[str, asyncio.Semaphore] = {}
+
+
+def _semaphore_for(provider_name: str, limit: int) -> asyncio.Semaphore:
+    key = f"{provider_name}:{limit}"
+    sem = _SEMAPHORES.get(key)
+    if sem is None:
+        sem = asyncio.Semaphore(max(1, limit))
+        _SEMAPHORES[key] = sem
+    return sem
 
 COST_PER_MTOK: dict[tuple[str, str], tuple[float, float]] = {
     ("groq", "openai/gpt-oss-120b"): (0.15, 0.60),
@@ -99,15 +114,20 @@ class ModelRouter:
         for index, (provider, model) in enumerate(chain):
             try:
                 started = time.perf_counter()
-                result = await provider.complete(
-                    messages,
-                    task=task,
-                    model=model,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    json_mode=json_mode,
-                    ctx=ctx,
-                )
+                try:
+                    limit = int(getattr(self.settings, "provider_max_concurrency", 3) or 3)
+                except (TypeError, ValueError):
+                    limit = 3
+                async with _semaphore_for(provider.name, limit):
+                    result = await provider.complete(
+                        messages,
+                        task=task,
+                        model=model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        json_mode=json_mode,
+                        ctx=ctx,
+                    )
                 if index > 0:
                     result.fallback_used = True
                     logger.warning(

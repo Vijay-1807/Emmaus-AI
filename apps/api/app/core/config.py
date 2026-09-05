@@ -89,6 +89,10 @@ class Settings(BaseSettings):
 
     max_upload_mb: int = 25
 
+    # Max concurrent non-streaming LLM calls per provider. Caps burst
+    # traffic so parallel investigations don't stampede free-tier TPM limits.
+    provider_max_concurrency: int = 3
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

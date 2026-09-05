@@ -194,7 +194,23 @@ async def check_rate_limit(link: dict) -> str | None:
     """Sliding-window burst cap + single-flight lock. Returns wait message or None."""
     db = get_db()
     if link.get("locked"):
-        return "⏳ I'm still working on your previous question — one moment…"
+        expires = link.get("lock_expires_at")
+        if expires is not None:
+            # Mongo returns naive datetimes; normalize before comparing.
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if expires <= now():
+                # Stale lock from a crashed run — clear it instead of
+                # bricking the chat forever.
+                await db.telegram_links.update_one(
+                    {"_id": link["_id"]},
+                    {"$set": {"locked": False}, "$unset": {"lock_token": "", "lock_expires_at": ""}},
+                )
+                link["locked"] = False
+            else:
+                return "⏳ I'm still working on your previous question — one moment…"
+        else:
+            return "⏳ I'm still working on your previous question — one moment…"
     now_ts = now().timestamp()
     recent = [t for t in link.get("msg_times", []) if now_ts - t < RATE_WINDOW_SECONDS]
     if len(recent) >= MAX_MSGS_PER_MINUTE:

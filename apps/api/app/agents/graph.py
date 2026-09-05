@@ -502,6 +502,22 @@ async def generate_node(state: InvestigationState) -> dict:
         events.emit({"type": "token", "text": answer})
     used = sorted({int(n) for n in re.findall(r"\[(\d+)\]", answer)})
     citations = [citation_map[n] for n in used if n in citation_map]
+    if not citations:
+        # The model sometimes answers without [N] markers even though it
+        # generated from retrieved evidence. Fall back to the top retrieved
+        # sources so the Sources button is never empty after a grounded answer.
+        seen_docs: set[str] = set()
+        for piece in evidence:
+            citation = piece.get("citation")
+            if not citation:
+                continue
+            doc_id = citation.get("document_id") or citation.get("document_name")
+            if doc_id in seen_docs:
+                continue
+            seen_docs.add(doc_id)
+            citations.append(citation)
+            if len(citations) >= 3:
+                break
     charts = [
         piece["chart"] for piece in evidence if piece.get("chart")
     ]

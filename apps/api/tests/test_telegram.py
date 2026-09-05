@@ -159,6 +159,31 @@ async def test_answer_keyboard_shape():
 
 
 @pytest.mark.asyncio
+async def test_stale_lock_expires(tg_outbox):
+    """A lock from a crashed run must not brick the chat forever."""
+    import app.core.db as db_module
+    from datetime import datetime, timedelta, timezone
+
+    await tg.handle_update(make_message("/start", chat_id=1005))
+    link = await db_module._db.telegram_links.find_one({"telegram_chat_id": 1005})
+    await db_module._db.telegram_links.update_one(
+        {"_id": link["_id"]},
+        {
+            "$set": {
+                "locked": True,
+                "lock_token": "dead-token",
+                "lock_expires_at": datetime.now(timezone.utc) - timedelta(seconds=10),
+            }
+        },
+    )
+    link = await db_module._db.telegram_links.find_one({"telegram_chat_id": 1005})
+    verdict = await tg.check_rate_limit(link)
+    assert verdict is None
+    link = await db_module._db.telegram_links.find_one({"telegram_chat_id": 1005})
+    assert link["locked"] is False
+
+
+@pytest.mark.asyncio
 async def test_update_claim_is_idempotent():
     import app.core.db as db_module
 

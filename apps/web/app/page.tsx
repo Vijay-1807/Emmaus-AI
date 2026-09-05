@@ -269,7 +269,7 @@ export default function HomePage() {
       }
       localStorage.setItem("vedax_workspace_id", id);
 
-      // Resolve @mentions: copy library sources into the new workspace so RAG can see them.
+      // Resolve @mentions: copy docs or datasets into the new workspace so RAG/data can see them.
       const mentionedIds: string[] = [];
       const atTokens = query.match(/@([^\s]+(?:\s+[^\s]+)*)/g) || [];
       for (const token of atTokens) {
@@ -280,8 +280,10 @@ export default function HomePage() {
           ?? librarySources.find((s) => s.filename.toLowerCase().includes(raw.toLowerCase()));
         if (!match || match.workspace_id === id) continue;
         try {
-          const { copyDocumentToWorkspace } = await import("@/lib/workspace");
-          const newId = await copyDocumentToWorkspace(match.workspace_id, match.id, id);
+          const ws = await import("@/lib/workspace");
+          const newId = match.source_type === "dataset"
+            ? await ws.copyDatasetToWorkspace(match.workspace_id, match.id, id)
+            : await ws.copyDocumentToWorkspace(match.workspace_id, match.id, id);
           if (newId) mentionedIds.push(newId);
         } catch { /* best-effort */ }
       }
@@ -344,27 +346,37 @@ export default function HomePage() {
         {/* Composer Card */}
         <div className="w-full max-w-2xl rounded-[24px] border border-white/50 bg-white/40 p-1.5 shadow-[0_16px_60px_rgba(77,63,54,.12)] backdrop-blur-xl">
           <div className="rounded-[20px] border border-black/[.06] bg-[#fffdf8]/80 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,.9)]">
-            {/* @-mention picker: Home reuses your whole library, like workspace chat */}
-            {mentionQuery !== null && (
-              <div className="mb-1 max-h-40 overflow-y-auto rounded-xl border border-black/[.06] bg-white py-1 shadow-sm">
-                {mentionMatches.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-[#8d8780]">
-                    {librarySources.length === 0 ? "No documents in your library yet." : "No match — upload it from Documents, then type @"}
-                  </div>
-                ) : (
-                  mentionMatches.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => selectMention(s.filename)}
-                      className="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition hover:bg-black/[.05]"
-                    >
-                      <span className="truncate font-medium">{s.filename}</span>
-                      <span className="ml-2 shrink-0 text-[10px] text-[#8d8780]">{s.source_type}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
+            {/* @-mention picker: surfaces documents + datasets from your whole library */}
+            {mentionQuery !== null && (() => {
+              const docs = mentionMatches.filter((s) => s.source_type !== "dataset");
+              const datasets = mentionMatches.filter((s) => s.source_type === "dataset");
+              return (
+                <div className="mb-1 max-h-52 overflow-y-auto rounded-xl border border-black/[.06] bg-white py-1 shadow-sm">
+                  {mentionMatches.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-[#8d8780]">
+                      {librarySources.length === 0 ? "No sources yet — upload a doc or dataset first, then type @" : "No match — try a shorter query."}
+                    </div>
+                  ) : (
+                    <>
+                      {docs.length > 0 && <div className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-[#8d8780]">Documents</div>}
+                      {docs.map((s) => (
+                        <button key={s.id} onClick={() => selectMention(s.filename)} className="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition hover:bg-black/[.05]">
+                          <span className="truncate font-medium">{s.filename}</span>
+                          <span className="ml-2 shrink-0 text-[10px] text-[#8d8780]">{s.source_type}</span>
+                        </button>
+                      ))}
+                      {datasets.length > 0 && <div className={`${docs.length ? "mt-1 border-t border-black/[.04] pt-1 " : ""}px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-[#6366f1]`}>Datasets</div>}
+                      {datasets.map((s) => (
+                        <button key={s.id} onClick={() => selectMention(s.filename)} className="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition hover:bg-black/[.05]">
+                          <span className="truncate font-medium">{s.filename}</span>
+                          <span className="ml-2 shrink-0 rounded-full bg-[#6366f1]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#6366f1]">dataset</span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
             <textarea
               ref={queryRef}
               autoFocus

@@ -1,5 +1,5 @@
 import { ApiError, apiFetch, ensureAnonymousSession } from "@/lib/api";
-import type { Document, Workspace } from "@/lib/types";
+import type { Dataset, Document, Workspace } from "@/lib/types";
 
 const KEY = "vedax_workspace_id";
 
@@ -65,14 +65,16 @@ export async function listLibrarySources(): Promise<LibrarySource[]> {
     const workspaces = await apiFetch<Workspace[]>("/api/workspaces");
     const sources: LibrarySource[] = [];
     for (const ws of workspaces) {
-      try {
-        const fetched = await apiFetch<Document[]>(`/api/documents?workspace_id=${ws.id}`);
-        fetched.forEach((d) =>
-          sources.push({ id: d.id, filename: d.filename, source_type: d.source_type, workspace_id: ws.id })
-        );
-      } catch {
-        continue;
-      }
+      const [docs, datasets] = await Promise.all([
+        apiFetch<Document[]>(`/api/documents?workspace_id=${ws.id}`).catch(() => [] as Document[]),
+        apiFetch<Dataset[]>(`/api/datasets?workspace_id=${ws.id}`).catch(() => [] as Dataset[]),
+      ]);
+      docs.forEach((d) =>
+        sources.push({ id: d.id, filename: d.filename, source_type: d.source_type, workspace_id: ws.id })
+      );
+      datasets.forEach((d) =>
+        sources.push({ id: d.id, filename: d.filename, source_type: "dataset", workspace_id: ws.id })
+      );
     }
     return sources;
   } catch {
@@ -95,6 +97,30 @@ export async function copyDocumentToWorkspace(
       }),
     });
     return data.document_id;
+  } catch {
+    return null;
+  }
+}
+
+export async function copyDatasetToWorkspace(
+  sourceWs: string,
+  datasetId: string,
+  targetWs: string,
+): Promise<string | null> {
+  try {
+    const exists = await apiFetch<Dataset[]>(`/api/datasets?workspace_id=${targetWs}`).catch(() => [] as Dataset[]);
+    if (exists.some((d) => d.id === datasetId)) return datasetId;
+    // Re-upload is not possible without bytes; use documents/copy pattern:
+    // datasets are indexed chunks too — reuse the same deep-copy idea via raw API
+    const res = await apiFetch<{ dataset_id: string }>("/api/datasets/copy", {
+      method: "POST",
+      body: JSON.stringify({
+        source_workspace_id: sourceWs,
+        dataset_id: datasetId,
+        target_workspace_id: targetWs,
+      }),
+    }).catch(() => null);
+    return res?.dataset_id ?? null;
   } catch {
     return null;
   }

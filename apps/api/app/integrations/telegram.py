@@ -28,11 +28,19 @@ _UNICODE_SPACE_RE = re.compile(
 _CONFIDENCE_LINE_RE = re.compile(r"^\s*Confidence:\s*.*$", re.IGNORECASE | re.MULTILINE)
 
 
+_CODE_FENCE_RE = re.compile(r"```[\s\S]*?```")
+_SOURCE_SECTION_RE = re.compile(r"\n+Sources?:\s*\n[\s\S]*$", re.IGNORECASE)
+_REFERENCE_SECTION_RE = re.compile(r"\n+References?:\s*\n[\s\S]*$", re.IGNORECASE)
+
+
 def clean_answer_for_telegram(text: str) -> str:
     """Mirror the website's answer cleaning so Telegram gets the same polish."""
     cleaned = _CITATION_TOKEN_RE.sub("", text)
     cleaned = _UNICODE_SPACE_RE.sub(" ", cleaned)
     cleaned = _CONFIDENCE_LINE_RE.sub("", cleaned)
+    cleaned = _SOURCE_SECTION_RE.sub("", cleaned)
+    cleaned = _REFERENCE_SECTION_RE.sub("", cleaned)
+    cleaned = _CODE_FENCE_RE.sub("", cleaned)
     cleaned = cleaned.replace("\u2014", "-").replace("\u2013", "-")
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
@@ -52,13 +60,13 @@ class TelegramApiError(RuntimeError):
 
 WELCOME_TEXT = (
     "👋 *Welcome to Emmaus AI*\n\n"
-    "Send me text, documents, datasets, photos, handwriting, or voice notes "
-    "and I will investigate with the full multimodal pipeline.\n\n"
-    "*How to use:*\n"
-    "• Just ask — I search your docs, tables, images, and transcripts.\n"
-    "• Attach a file or photo with a caption: \"Summarize this\"\n"
-    "• Voice: hold the mic and speak your question.\n\n"
-    "*Commands:* /new  /history  /status  /help"
+    "I can search your documents, analyze datasets, read images, and transcribe voice.\n\n"
+    "💡 *Try asking:*\n"
+    "• \"Summarize my uploaded documents\"\n"
+    "• \"What are the key insights in my dataset?\"\n"
+    "• \"Analyze this photo\"\n\n"
+    "📎 *Tips:* Attach a file with a caption, or use /generate <prompt> for AI images.\n\n"
+    "Commands: /new  /history  /status  /help"
 )
 
 HELP_TEXT = (
@@ -70,9 +78,9 @@ HELP_TEXT = (
     "• /new — fresh chat (clears memory)\n"
     "• /history — last 5 investigations\n"
     "• /status — your docs / datasets / media / chats\n"
+    "• /generate <prompt> — generate an image with AI\n"
     "• /help — this help\n\n"
-    "*Tips:* Add a caption to attachments (\"What are the skills on page 2?\"). "
-    "After an answer, tap *📄 Sources* to see citations, *💬 New chat* to reset."
+    "💡 *Tip:* After an answer, tap *Sources* to see citations, *New chat* to reset."
 )
 
 
@@ -141,6 +149,14 @@ async def process_claimed_update(update_id: int, update: dict) -> None:
         )
     except Exception as exc:
         logger.error("telegram update %s failed: %s", update_id, exc, exc_info=True)
+        # Try to notify the user
+        try:
+            message = update.get("message") or update.get("callback_query", {}).get("message", {})
+            chat_id = message.get("chat", {}).get("id")
+            if chat_id:
+                await send_message(chat_id, "❌ Something went wrong processing your message. Please try again.")
+        except Exception:
+            pass
         await db.telegram_updates.update_one(
             {"update_id": update_id},
             {"$set": {"status": "failed", "error": str(exc)[:500], "failed_at": now()}},
@@ -173,19 +189,37 @@ def _chunk_message(text: str, limit: int = MAX_MESSAGE) -> list[str]:
 async def send_message(
     chat_id: int, text: str, reply_markup: dict | None = None
 ) -> None:
-    for chunk in _chunk_message(text):
+    chunks = _chunk_message(text)
+    last_chunk = chunks[-1] if chunks else text
+    for chunk in chunks:
         payload: dict = {"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"}
-        if reply_markup is not None and chunk == _chunk_message(text)[-1]:
-            # Only the last chunk carries buttons (stays Markdown-typed).
+        if reply_markup is not None and chunk is last_chunk:
             payload["reply_markup"] = reply_markup
         try:
             await telegram_request("sendMessage", payload)
         except TelegramApiError as exc:
             if exc.error_code not in (400,):
                 raise
-            payload.pop("parse_mode", None)
-            payload.pop("reply_markup", None)
-            await telegram_request("sendMessage", payload)
+            # Markdown failed — try HTML fallback, then plain text.
+            # Always preserve reply_markup (buttons are JSON, not Markdown).
+            html_text = (
+                chunk.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+            # Convert Markdown bold/italic/code to HTML
+            html_text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html_text)
+            html_text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", html_text)
+            html_text = re.sub(r"`(.+?)`", r"<code>\1</code>", html_text)
+            payload["text"] = html_text
+            payload["parse_mode"] = "HTML"
+            try:
+                await telegram_request("sendMessage", payload)
+            except TelegramApiError:
+                # HTML also failed — send plain text, still keep buttons
+                payload["text"] = chunk
+                payload.pop("parse_mode", None)
+                await telegram_request("sendMessage", payload)
 
 
 async def send_action(chat_id: int, action: str = "typing") -> None:
@@ -219,7 +253,8 @@ def persistent_keyboard() -> dict:
     """Bottom reply-keyboard so commands are always one tap away (not a slash)."""
     return {
         "keyboard": [
-            [{"text": "/status"}, {"text": "/history"}, {"text": "/new"}, {"text": "/help"}]
+            [{"text": "/status"}, {"text": "/history"}, {"text": "/new"}, {"text": "/generate"}],
+            [{"text": "/help"}],
         ],
         "resize_keyboard": True,
         "is_persistent": True,
@@ -227,8 +262,14 @@ def persistent_keyboard() -> dict:
 
 
 async def check_rate_limit(link: dict) -> str | None:
-    """Sliding-window burst cap + single-flight lock. Returns wait message or None."""
+    """Sliding-window burst cap + single-flight lock. Returns wait message or None.
+    
+    Uses atomic MongoDB operations to prevent race conditions.
+    """
     db = get_db()
+    link_id = link["_id"]
+    
+    # First, atomically check and clear stale locks
     if link.get("locked"):
         expires = link.get("lock_expires_at")
         if expires is not None:
@@ -236,26 +277,63 @@ async def check_rate_limit(link: dict) -> str | None:
             if expires.tzinfo is None:
                 expires = expires.replace(tzinfo=timezone.utc)
             if expires <= now():
-                # Stale lock from a crashed run — clear it instead of
-                # bricking the chat forever.
-                await db.telegram_links.update_one(
-                    {"_id": link["_id"]},
-                    {"$set": {"locked": False}, "$unset": {"lock_token": "", "lock_expires_at": ""}},
+                # Stale lock from a crashed run — clear it atomically
+                result = await db.telegram_links.update_one(
+                    {
+                        "_id": link_id,
+                        "locked": True,
+                        "lock_expires_at": {"$lte": expires},
+                    },
+                    {
+                        "$set": {"locked": False},
+                        "$unset": {"lock_token": "", "lock_expires_at": ""},
+                    },
                 )
-                link["locked"] = False
+                if result.modified_count == 1:
+                    link["locked"] = False
+                else:
+                    # Another process cleared it
+                    return "⏳ I'm still working on your previous question — one moment…"
             else:
                 return "⏳ I'm still working on your previous question — one moment…"
         else:
             return "⏳ I'm still working on your previous question — one moment…"
+    
+    # Atomically check rate limit and append timestamp
     now_ts = now().timestamp()
-    recent = [t for t in link.get("msg_times", []) if now_ts - t < RATE_WINDOW_SECONDS]
-    if len(recent) >= MAX_MSGS_PER_MINUTE:
-        wait = int(RATE_WINDOW_SECONDS - (now_ts - min(recent))) + 1
-        return f"🐢 Slow down a little — try again in ~{wait}s (free-tier limits)."
-    recent.append(now_ts)
-    await db.telegram_links.update_one(
-        {"_id": link["_id"]}, {"$set": {"msg_times": recent[-MAX_MSGS_PER_MINUTE:]}}
+    cutoff_ts = now_ts - RATE_WINDOW_SECONDS
+    
+    # Use atomic MongoDB operation to:
+    # 1. Remove old timestamps outside the window
+    # 2. Add the new timestamp
+    # 3. Keep only the last MAX_MSGS_PER_MINUTE timestamps
+    result = await db.telegram_links.update_one(
+        {
+            "_id": link_id,
+            "$or": [
+                {"msg_times": {"$exists": False}},
+                {"msg_times.0": {"$lt": cutoff_ts}},  # At least one old timestamp
+                {"$expr": {"$lt": [{"$size": "$msg_times"}, MAX_MSGS_PER_MINUTE]}},  # Under limit
+            ],
+        },
+        {
+            "$push": {
+                "msg_times": {
+                    "$each": [now_ts],
+                    "$slice": -MAX_MSGS_PER_MINUTE,  # Keep only last N
+                }
+            },
+        },
     )
+    
+    if result.modified_count == 0:
+        # Rate limit exceeded - get current count to calculate wait
+        updated_link = await db.telegram_links.find_one({"_id": link_id})
+        recent = [t for t in (updated_link or {}).get("msg_times", []) if now_ts - t < RATE_WINDOW_SECONDS]
+        if len(recent) >= MAX_MSGS_PER_MINUTE:
+            wait = int(RATE_WINDOW_SECONDS - (now_ts - min(recent))) + 1
+            return f"🐢 Too many messages at once — try again in ~{wait}s."
+    
     return None
 
 
@@ -379,6 +457,7 @@ async def extract_question(
             transcript = (await transcribe_audio(data, filename))["text"]
         except Exception as exc:
             logger.warning("telegram voice transcription failed: %s", exc)
+            transcript = ""
         media = {
             "_id": uuid.uuid4().hex,
             "workspace_id": workspace_id,
@@ -396,13 +475,16 @@ async def extract_question(
         await db.media_assets.insert_one(media)
         audio_media_id = media["_id"]
         if not text:
-            text = transcript or "(unintelligible voice message)"
+            text = transcript or "(Could not transcribe voice — please type your question)"
 
     for photo in (message.get("photo") or [])[-1:]:
-        data, filename = await download_file(photo["file_id"])
+        data, _ = await download_file(photo["file_id"])
         from app.services.media_service import MediaService
 
         media_service = MediaService()
+        caption = (message.get("caption") or "").strip()[:30] or "photo"
+        safe_caption = re.sub(r"[^\w\s-]", "", caption).strip().replace(" ", "_") or "photo"
+        filename = f"{safe_caption}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.jpg"
         stored = await media_service.upload(data, filename, workspace_id, "image")
         from app.vision.analyzer import analyze_image
 
@@ -411,6 +493,7 @@ async def extract_question(
             analysis = await analyze_image(data, "image/jpeg")
         except Exception as exc:
             logger.warning("telegram photo analysis failed: %s", exc)
+            await send_message(chat_id, "⚠️ Image analysis partially failed — I'll do my best with the text question.")
         media = {
             "_id": uuid.uuid4().hex,
             "workspace_id": workspace_id,
@@ -454,6 +537,7 @@ async def extract_question(
                     text = f"Process and summarize {filename}"
             except Exception as exc:
                 logger.warning("telegram document processing failed: %s", exc)
+                await send_message(chat_id, f"⚠️ Could not process `{filename}`: {str(exc)[:150]}")
 
     return text, attachment_ids, audio_media_id
 
@@ -467,12 +551,74 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
     if cmd == "/start":
         await send_message(chat_id, WELCOME_TEXT, reply_markup=persistent_keyboard())
         return True
+    if cmd == "/generate":
+        # Extract prompt from the command
+        prompt = command[len("/generate"):].strip()
+        if not prompt:
+            await send_message(
+                chat_id,
+                "🎨 *Image Generation*\n\n"
+                "Usage: /generate <prompt>\n"
+                "Example: /generate A futuristic city at sunset\n\n"
+                "The image will be generated using FLUX.1 Schnell model.",
+            )
+            return True
+        
+        # Check if Cloudflare is configured
+        from app.core.config import get_settings
+        settings = get_settings()
+        if not settings.has_cloudflare:
+            await send_message(
+                chat_id,
+                "❌ Image generation is not configured. "
+                "Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to enable this feature.",
+            )
+            return True
+        
+        # Generate image
+        await send_action(chat_id, "upload_photo")
+        try:
+            from app.services.image_service import get_image_service
+            import base64
+            
+            service = get_image_service()
+            result = await service.generate(prompt=prompt)
+            
+            if not result.success:
+                await send_message(chat_id, f"❌ Image generation failed: {result.error}")
+                return True
+            
+            # Decode base64 image
+            image_data = base64.b64decode(result.image_base64)
+            
+            # Send photo via Telegram API
+            settings = get_settings()
+            async with httpx.AsyncClient(timeout=60) as client:
+                # Upload the image
+                files = {"photo": ("generated_image.png", image_data, "image/png")}
+                # Escape Markdown special chars in user prompt for caption
+                safe_prompt = re.sub(r"([*_`\[\]])", r"\\\1", prompt[:200])
+                payload = {
+                    "chat_id": chat_id,
+                    "caption": f"🎨 Generated Image\n\nPrompt: {safe_prompt}",
+                }
+                response = await client.post(
+                    f"{API_BASE}/bot{settings.telegram_bot_token}/sendPhoto",
+                    data=payload,
+                    files=files,
+                )
+                response.raise_for_status()
+            
+        except Exception as exc:
+            logger.error("Telegram image generation failed: %s", exc, exc_info=True)
+            await send_message(chat_id, "❌ Image generation failed — please try again or use a different prompt.")
+        return True
     if cmd == "/help":
         await send_message(chat_id, HELP_TEXT)
         return True
     if cmd == "/new":
         if link.get("locked"):
-            await send_message(chat_id, "⏳ Your current investigation is still running. Try /new when it finishes.")
+            await send_message(chat_id, "⏳ Still working on your previous question — try /new in a moment.")
             return True
         await db.telegram_links.update_one(
             {"_id": link["_id"]},
@@ -494,7 +640,9 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
             lines.append(f"• {q}")
         await send_message(
             chat_id,
-            "🕘 *Recent investigations*\n\n" + ("\n".join(lines) if lines else "Nothing yet — ask me anything!"),
+            "🕘 *Recent investigations*\n\n"
+            + ("\n".join(lines) if lines else "Nothing yet — ask me anything!")
+            + ("\n\n💬 Ask again to revisit any topic." if lines else ""),
         )
         return True
     if cmd == "/status":
@@ -520,6 +668,8 @@ def format_citations(investigation: dict) -> str:
         name = cite.get("document_name", "source") if isinstance(cite, dict) else str(cite)
         page = cite.get("page") if isinstance(cite, dict) else None
         lines.append(f"{i}. {name}" + (f" (p. {page})" if page else ""))
+    if len(citations) > 10:
+        lines.append(f"\n_...and {len(citations) - 10} more sources_")
     return "\n".join(lines)
 
 
@@ -532,7 +682,8 @@ async def handle_callback(update: dict) -> None:
         return
     try:
         await telegram_request(
-            "answerCallbackQuery", {"callback_query_id": query.get("id")}
+            "answerCallbackQuery",
+            {"callback_query_id": query.get("id"), "text": "Loading...", "show_alert": False},
         )
     except Exception:
         pass
@@ -542,7 +693,7 @@ async def handle_callback(update: dict) -> None:
         return
     if data == "newchat":
         if link.get("locked"):
-            await send_message(chat_id, "⏳ Your current investigation is still running. Try /new when it finishes.")
+            await send_message(chat_id, "⏳ Still working on your previous question — try /new in a moment.")
             return
         await db.telegram_links.update_one(
             {"_id": link["_id"]},
@@ -567,9 +718,11 @@ async def handle_update(update: dict) -> None:
     if not message:
         return
     chat_id = message["chat"]["id"]
-    if message.get("chat", {}).get("type", "private") != "private":
-        await send_message(chat_id, "For privacy, Emmaus AI currently works in private chats only.")
+    # Ignore edited messages to avoid re-triggering investigations
+    if update.get("edited_message"):
         return
+    if message.get("chat", {}).get("type", "private") != "private":
+        return  # Silently ignore group chats
     link = await get_or_create_link(chat_id, message.get("from", {}))
     workspace_id = link["workspace_id"]
 
@@ -587,7 +740,7 @@ async def handle_update(update: dict) -> None:
 
     lock_token = await claim_chat_lock(link["_id"])
     if not lock_token:
-        await send_message(chat_id, "⏳ I'm still working on your previous question — one moment…")
+        await send_message(chat_id, "⏳ Still working on your previous question — one moment…")
         return
     await send_action(chat_id, "typing")
     try:
@@ -595,13 +748,18 @@ async def handle_update(update: dict) -> None:
             message, workspace_id, link["user_id"]
         )
         if not text and not attachment_ids and not audio_media_id:
-            await send_message(chat_id, "I could not read this message type.")
+            await send_message(
+                chat_id,
+                "⚠️ I can't process this message type yet. "
+                "I understand: *text, photos, documents (PDF/DOCX/CSV/XLSX), and voice notes*. "
+                "Try sending one of those!"
+            )
             await release_chat_lock(link["_id"], lock_token)
             return
         if not text:
             text = "Explain this."
     except Exception as exc:
-        await send_message(chat_id, f"I could not process that attachment: {str(exc)[:180]}")
+        await send_message(chat_id, "⚠️ Could not process that attachment — please try again.")
         await release_chat_lock(link["_id"], lock_token)
         return
 
@@ -609,6 +767,7 @@ async def handle_update(update: dict) -> None:
     typing_task = asyncio.create_task(_typing_loop(chat_id, stop_typing))
     final_answer = ""
     investigation_id: str | None = None
+    start_time = now()
     try:
         conversation_id = link.get("conversation_id")
         async for event in run_investigation(
@@ -631,17 +790,21 @@ async def handle_update(update: dict) -> None:
             elif event["type"] == "error":
                 final_answer = event["message"]
     finally:
-        stop_typing.set()
         try:
             await typing_task
         except Exception:
             pass
         await release_chat_lock(link["_id"], lock_token)
+    elapsed = (now() - start_time).total_seconds()
+    answer_text = clean_answer_for_telegram(final_answer or "Something went wrong. Please try again.")
+    if elapsed > 5:
+        answer_text += f"\n\n_Solved in {elapsed:.1f}s_"
     await send_message(
         chat_id,
-        clean_answer_for_telegram(final_answer or "Something went wrong. Please try again."),
+        answer_text,
         reply_markup=answer_keyboard(investigation_id),
     )
+    stop_typing.set()
 
 
 async def webhook_info() -> dict:

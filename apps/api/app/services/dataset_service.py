@@ -16,6 +16,25 @@ from app.services.media_service import MediaService
 
 logger = logging.getLogger("vedax.datasets")
 
+# Track background tasks to prevent garbage collection
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _track_task(task: asyncio.Task) -> None:
+    """Track a background task to prevent GC and handle exceptions."""
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    task.add_done_callback(_handle_task_exception)
+
+
+def _handle_task_exception(task: asyncio.Task) -> None:
+    """Log exceptions from background tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("Background dataset task failed: %s", exc, exc_info=exc)
+
 DATASET_EXTS = {".csv", ".xlsx", ".xls"}
 MAX_ROWS_STORED = 50_000
 
@@ -98,7 +117,8 @@ async def create_dataset(
         "created_at": now(),
     }
     await db.datasets.insert_one(dataset)
-    asyncio.create_task(_process_dataset(dataset["_id"], workspace_id, filename, data))
+    task = asyncio.create_task(_process_dataset(dataset["_id"], workspace_id, filename, data))
+    _track_task(task)
     return dataset
 
 

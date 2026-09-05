@@ -1,7 +1,11 @@
+import secrets
 from functools import lru_cache
 from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Default key for development only - never use in production
+_DEFAULT_SECRET_KEY = "dev-secret-change-me"
 
 
 class Settings(BaseSettings):
@@ -11,11 +15,35 @@ class Settings(BaseSettings):
     environment: str = "development"
     api_prefix: str = "/api"
 
-    secret_key: str = "dev-secret-change-me"
+    secret_key: str = _DEFAULT_SECRET_KEY
 
     def model_post_init(self, __context: Any) -> None:
-        if self.environment == "production" and self.secret_key == "dev-secret-change-me":
-            raise ValueError("SECRET_KEY must be set to a secure value in production")
+        import logging
+        logger = logging.getLogger("vedax.config")
+        
+        # In production, require a real secret key
+        if self.environment == "production":
+            if self.secret_key == _DEFAULT_SECRET_KEY:
+                raise ValueError(
+                    "SECRET_KEY must be set to a secure value in production. "
+                    "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+                )
+            # Warn if key looks weak (less than 32 chars or is the default)
+            if len(self.secret_key) < 32:
+                logger.warning(
+                    "SECRET_KEY is only %d characters. Use at least 32 characters for security.",
+                    len(self.secret_key),
+                )
+        else:
+            # In non-production, auto-generate a random key if using default
+            if self.secret_key == _DEFAULT_SECRET_KEY:
+                self.secret_key = secrets.token_hex(32)
+                logger.info(
+                    "Auto-generated random SECRET_KEY for %s environment. "
+                    "Set SECRET_KEY in .env for persistence across restarts.",
+                    self.environment,
+                )
+
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 14
 
@@ -58,6 +86,11 @@ class Settings(BaseSettings):
     deepgram_api_key: str = ""
     deepgram_base_url: str = "https://api.deepgram.com/v1"
     deepgram_stt_model: str = "nova-3"
+
+    # Cloudflare Workers AI (Image Generation)
+    cloudflare_account_id: str = ""
+    cloudflare_api_token: str = ""
+    cloudflare_image_model: str = "@cf/black-forest-labs/flux-1-schnell"
 
     # Embeddings
     embedding_provider: str = "jina"
@@ -120,6 +153,10 @@ class Settings(BaseSettings):
     @property
     def has_deepgram(self) -> bool:
         return bool(self.deepgram_api_key)
+
+    @property
+    def has_cloudflare(self) -> bool:
+        return bool(self.cloudflare_account_id and self.cloudflare_api_token)
 
     @property
     def has_gemini(self) -> bool:

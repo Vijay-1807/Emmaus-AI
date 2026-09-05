@@ -172,18 +172,47 @@ class MediaService:
         )
 
     async def delete(self, asset: StoredAsset) -> None:
+        """Delete a media asset with error handling to prevent orphaned records.
+        
+        Even if deletion fails, we log the error and continue so that
+        database records can still be cleaned up.
+        """
         if asset.mode == "cloudinary":
-            import cloudinary.uploader
+            try:
+                import cloudinary.uploader
 
-            self._configure_cloudinary()
-            await asyncio.to_thread(
-                cloudinary.uploader.destroy,
-                asset.public_id,
-                resource_type=asset.resource_type,
-            )
+                self._configure_cloudinary()
+                # Skip delete if Cloudinary is already marked dead
+                if self._cloudinary_dead:
+                    logger.warning("Skipping Cloudinary delete - service marked as dead")
+                    return
+                    
+                await asyncio.to_thread(
+                    cloudinary.uploader.destroy,
+                    asset.public_id,
+                    resource_type=asset.resource_type,
+                )
+            except Exception as exc:
+                message = str(exc)
+                # Mark Cloudinary as dead if permission/auth error
+                if any(keyword in message.lower() for keyword in ("forbidden", "permission", "unauthorized", "invalid")):
+                    self._mark_cloudinary_failed(message)
+                else:
+                    logger.warning(
+                        "Cloudinary delete failed for %s: %s (continuing cleanup)",
+                        asset.public_id,
+                        message[:200],
+                    )
         elif asset.bytes_path:
-            path = Path(asset.bytes_path)
-            await asyncio.to_thread(path.unlink, missing_ok=True)
+            try:
+                path = Path(asset.bytes_path)
+                await asyncio.to_thread(path.unlink, missing_ok=True)
+            except Exception as exc:
+                logger.warning(
+                    "Local file delete failed for %s: %s (continuing cleanup)",
+                    asset.bytes_path,
+                    str(exc)[:200],
+                )
 
 
 def workspace_dir(public_id: str) -> str:

@@ -24,15 +24,18 @@ logger = logging.getLogger("vedax.router")
 # fast-model calls (classify/rewrite/rerank/verify across concurrent
 # investigations) otherwise stampede free-tier TPM limits into 429 storms.
 _SEMAPHORES: dict[str, asyncio.Semaphore] = {}
+_SEMAPHORE_LOCK = asyncio.Lock()
 
 
-def _semaphore_for(provider_name: str, limit: int) -> asyncio.Semaphore:
+async def _semaphore_for(provider_name: str, limit: int) -> asyncio.Semaphore:
+    """Get or create a semaphore for the given provider with thread-safe initialization."""
     key = f"{provider_name}:{limit}"
-    sem = _SEMAPHORES.get(key)
-    if sem is None:
-        sem = asyncio.Semaphore(max(1, limit))
-        _SEMAPHORES[key] = sem
-    return sem
+    async with _SEMAPHORE_LOCK:
+        sem = _SEMAPHORES.get(key)
+        if sem is None:
+            sem = asyncio.Semaphore(max(1, limit))
+            _SEMAPHORES[key] = sem
+        return sem
 
 COST_PER_MTOK: dict[tuple[str, str], tuple[float, float]] = {
     ("groq", "openai/gpt-oss-120b"): (0.15, 0.60),
@@ -108,59 +111,70 @@ class ModelRouter:
         max_tokens: int = 2048,
         json_mode: bool = False,
         ctx: RunContext | None = None,
+        retries: int = 3,
     ) -> CompletionResult:
+        """Complete a request with provider fallback chain.
+        
+        Args:
+            retries: Number of times to retry the entire chain (default 3).
+                     Each provider already has its own retry logic (3 attempts).
+        """
         errors: list[str] = []
         chain = self._chain(task)
         lf_client = _get_langfuse()
-        for index, (provider, model) in enumerate(chain):
-            try:
-                started = time.perf_counter()
+        
+        for chain_attempt in range(retries):
+            for index, (provider, model) in enumerate(chain):
                 try:
-                    limit = int(getattr(self.settings, "provider_max_concurrency", 3) or 3)
-                except (TypeError, ValueError):
-                    limit = 3
-                async with _semaphore_for(provider.name, limit):
-                    result = await provider.complete(
-                        messages,
-                        task=task,
-                        model=model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        json_mode=json_mode,
-                        ctx=ctx,
-                    )
-                if index > 0:
-                    result.fallback_used = True
-                    logger.warning(
-                        "task %s fell back to %s/%s",
-                        task.value,
-                        provider.name,
-                        model,
-                    )
-                if lf_client is not None and ctx is not None:
+                    started = time.perf_counter()
                     try:
-                        input_preview = str(messages[-1].get("content", ""))[:500] if messages else ""
-                        lf_client.span(
-                            name=f"llm:{task.value}",
-                            input=input_preview,
-                            output=result.text[:500],
+                        limit = int(getattr(self.settings, "provider_max_concurrency", 3) or 3)
+                    except (TypeError, ValueError):
+                        limit = 3
+                    sem = await _semaphore_for(provider.name, limit)
+                    async with sem:
+                        result = await provider.complete(
+                            messages,
+                            task=task,
                             model=model,
-                            metadata={
-                                "provider": provider.name,
-                                "task": task.value,
-                                "input_tokens": result.input_tokens,
-                                "output_tokens": result.output_tokens,
-                                "latency_ms": result.latency_ms,
-                                "fallback_used": result.fallback_used,
-                            },
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            json_mode=json_mode,
+                            ctx=ctx,
                         )
-                    except Exception:
-                        pass
-                return result
-            except Exception as exc:
-                errors.append(f"{provider.name}/{model}: {exc}")
-                logger.error("provider %s/%s failed for task %s: %s", provider.name, model, task.value, exc)
-        raise RuntimeError(f"all providers failed for task {task.value}: {'; '.join(errors)}")
+                    if index > 0:
+                        result.fallback_used = True
+                        logger.warning(
+                            "task %s fell back to %s/%s",
+                            task.value,
+                            provider.name,
+                            model,
+                        )
+                    if lf_client is not None and ctx is not None:
+                        try:
+                            input_preview = str(messages[-1].get("content", ""))[:500] if messages else ""
+                            lf_client.span(
+                                name=f"llm:{task.value}",
+                                input=input_preview,
+                                output=result.text[:500],
+                                model=model,
+                                metadata={
+                                    "provider": provider.name,
+                                    "task": task.value,
+                                    "input_tokens": result.input_tokens,
+                                    "output_tokens": result.output_tokens,
+                                    "latency_ms": result.latency_ms,
+                                    "fallback_used": result.fallback_used,
+                                },
+                            )
+                        except Exception:
+                            pass
+                    return result
+                except Exception as exc:
+                    errors.append(f"{provider.name}/{model}: {exc}")
+                    logger.error("provider %s/%s failed for task %s: %s", provider.name, model, task.value, exc)
+        
+        raise RuntimeError(f"all providers failed for task {task.value}: {'; '.join(errors[-3:])}")
 
     async def stream(
         self,
@@ -207,15 +221,19 @@ class ModelRouter:
         max_tokens: int = 2048,
         ctx: RunContext | None = None,
     ):
-        result = await with_retries(
-            lambda: self.complete(
-                messages,
-                task=task,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                json_mode=True,
-                ctx=ctx,
-            )
+        """Complete a JSON request with provider fallback.
+        
+        Note: self.complete already has provider fallback with 3 attempts per provider.
+        We don't add extra retries here to avoid 3×3=9 sequential attempts.
+        """
+        result = await self.complete(
+            messages,
+            task=task,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=True,
+            ctx=ctx,
+            retries=1,  # Single pass through the chain
         )
         data = extract_json(result.text)
         if schema is not None:

@@ -15,6 +15,25 @@ from app.vision.analyzer import analyze_image, format_analysis_for_indexing, ocr
 
 logger = logging.getLogger("vedax.documents")
 
+# Track background tasks to prevent garbage collection
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _track_task(task: asyncio.Task) -> None:
+    """Track a background task to prevent GC and handle exceptions."""
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    task.add_done_callback(_handle_task_exception)
+
+
+def _handle_task_exception(task: asyncio.Task) -> None:
+    """Log exceptions from background tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("Background task failed: %s", exc, exc_info=exc)
+
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".ogg", ".oga", ".webm", ".flac"}
 DOC_EXTS = {".pdf", ".docx", ".txt", ".md", ".markdown"}
@@ -70,11 +89,12 @@ async def create_document(
         "created_at": now(),
     }
     await db.documents.insert_one(document)
-    asyncio.create_task(
+    task = asyncio.create_task(
         _process_document(
             document["_id"], workspace_id, filename, content_type, data
         )
     )
+    _track_task(task)
     return document
 
 
@@ -194,16 +214,20 @@ async def delete_document(workspace_id: str, document_id: str) -> bool:
         local_path.unlink(missing_ok=True)
     elif media_info and media_info.get("mode") == "cloudinary":
         try:
-            import cloudinary.api
+            import cloudinary.uploader
 
             media = MediaService()
             media._configure_cloudinary()
             await asyncio.to_thread(
-                cloudinary.api.delete_asset,
+                cloudinary.uploader.destroy,
                 media_info["public_id"],
                 resource_type=media_info.get("resource_type", "raw"),
             )
-        except Exception:
-            logger.warning("cloudinary delete failed for %s", media_info.get("public_id"))
+        except Exception as exc:
+            logger.warning(
+                "cloudinary delete failed for %s: %s",
+                media_info.get("public_id"),
+                str(exc)[:200],
+            )
     await db.documents.delete_one({"_id": document_id})
     return True

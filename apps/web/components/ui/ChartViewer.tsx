@@ -12,13 +12,15 @@ import {
   PieChart,
   Pie,
   Cell,
+  ScatterChart,
+  Scatter,
   XAxis,
   YAxis,
   Tooltip,
   Legend,
   CartesianGrid,
 } from "recharts";
-import { BarChart3, LineChart as LineIcon, AreaChart as AreaIcon, Table as TableIcon, Download } from "lucide-react";
+import { BarChart3, LineChart as LineIcon, AreaChart as AreaIcon, ScatterChart as ScatterIcon, Table as TableIcon, Download } from "lucide-react";
 import type { Chart as ChartType } from "@/lib/types";
 
 interface ChartViewerProps {
@@ -36,8 +38,8 @@ const PALETTE = [
 ];
 
 export default function ChartViewer({ chart }: ChartViewerProps) {
-  const defaultMode = (chart.chart_type === "line" ? "line" : chart.chart_type === "pie" ? "pie" : "bar");
-  const [viewType, setViewType] = useState<"bar" | "line" | "area" | "pie" | "table">(defaultMode);
+  const defaultMode = (chart.chart_type === "line" ? "line" : chart.chart_type === "pie" ? "pie" : chart.chart_type === "scatter" ? "scatter" : "bar");
+  const [viewType, setViewType] = useState<"bar" | "line" | "area" | "pie" | "scatter" | "table">(defaultMode);
 
   // Transform labels + series into Recharts data format: [{ label: 'Q1', series1: 10, series2: 20 }, ...]
   const chartData = useMemo(() => {
@@ -129,6 +131,16 @@ export default function ChartViewer({ chart }: ChartViewerProps) {
           >
             <AreaIcon size={13} />
             <span className="hidden sm:inline">Area</span>
+          </button>
+          <button
+            onClick={() => setViewType("scatter")}
+            className={`flex items-center gap-1 rounded-md px-2 py-1 transition ${
+              viewType === "scatter" ? "bg-white font-medium text-black shadow-sm" : "text-[#78716c] hover:text-black"
+            }`}
+            title="Scatter Chart"
+          >
+            <ScatterIcon size={13} />
+            <span className="hidden sm:inline">Scatter</span>
           </button>
           <button
             onClick={() => setViewType("table")}
@@ -271,6 +283,48 @@ export default function ChartViewer({ chart }: ChartViewerProps) {
                 ))}
               </Pie>
             </PieChart>
+          </ResponsiveContainer>
+        ) : viewType === "scatter" ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 10, right: 15, left: -10, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" />
+              <XAxis 
+                type="category" 
+                dataKey="name" 
+                name="Category" 
+                stroke="#a8a29e" 
+                fontSize={11} 
+                tickLine={false} 
+              />
+              <YAxis 
+                type="number" 
+                dataKey={seriesNames[0] || "value"} 
+                name={seriesNames[0] || "Value"} 
+                stroke="#a8a29e" 
+                fontSize={11} 
+                tickLine={false} 
+                tickFormatter={formatNumber} 
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "rgba(255, 255, 255, 0.95)",
+                  borderRadius: "12px",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
+                  fontSize: "12px",
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "6px" }} />
+              {seriesNames.map((name, idx) => (
+                <Scatter
+                  key={name}
+                  name={name}
+                  data={chartData}
+                  fill={PALETTE[idx % PALETTE.length]}
+                  shape="circle"
+                />
+              ))}
+            </ScatterChart>
           </ResponsiveContainer>
         ) : (
           <ResponsiveContainer width="100%" height="100%">

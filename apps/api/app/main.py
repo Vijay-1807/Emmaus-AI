@@ -1,6 +1,7 @@
 import logging
 import time
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,7 @@ from app.api import (
     datasets,
     documents,
     evaluation,
+    image,
     investigations,
     media,
     observability,
@@ -81,6 +83,7 @@ def create_app() -> FastAPI:
     app.include_router(evaluation.router, prefix=prefix)
     app.include_router(observability.router, prefix=prefix)
     app.include_router(telegram.router, prefix=prefix)
+    app.include_router(image.router, prefix=prefix)
 
     @app.get(f"{prefix}/health")
     async def health():

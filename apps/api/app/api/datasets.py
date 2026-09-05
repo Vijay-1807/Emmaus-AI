@@ -1,10 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user, require_workspace
 from app.models.schemas import DatasetOut
 from app.services import dataset_service
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
+
+# Safety limits
+MAX_CHUNKS_PER_COPY = 10000
+MAX_ROWS_PER_COPY = 100000
+
+
+class CopyDatasetRequest(BaseModel):
+    source_workspace_id: str = Field(..., min_length=1, max_length=100)
+    dataset_id: str = Field(..., min_length=1, max_length=100)
+    target_workspace_id: str = Field(..., min_length=1, max_length=100)
 
 
 def to_out(dataset: dict) -> DatasetOut:
@@ -61,39 +72,89 @@ async def get_dataset(
 
 @router.post("/copy", status_code=200)
 async def copy_dataset(
-    body: dict,
+    body: CopyDatasetRequest,
     user: dict = Depends(get_current_user),
 ) -> dict:
-    source_ws = body.get("source_workspace_id")
-    dataset_id = body.get("dataset_id")
-    target_ws = body.get("target_workspace_id")
-    if not source_ws or not dataset_id or not target_ws:
-        raise HTTPException(status_code=422, detail="source_workspace_id, dataset_id, and target_workspace_id are required")
-    await require_workspace(source_ws, user)
-    await require_workspace(target_ws, user)
+    """Copy a dataset from one workspace to another with safety limits."""
+    from uuid import uuid4
     from app.core.db import get_db
+    from datetime import datetime, timezone
+
     db = get_db()
-    ds = await db.datasets.find_one({"_id": dataset_id, "workspace_id": source_ws})
+    
+    # Verify workspaces exist and user has access
+    await require_workspace(body.source_workspace_id, user)
+    await require_workspace(body.target_workspace_id, user)
+    
+    # Check for self-copy
+    if body.source_workspace_id == body.target_workspace_id:
+        raise HTTPException(status_code=400, detail="Cannot copy dataset to the same workspace")
+    
+    # Get source dataset
+    ds = await db.datasets.find_one({"_id": body.dataset_id, "workspace_id": body.source_workspace_id})
     if not ds:
         raise HTTPException(status_code=404, detail="dataset not found in source workspace")
-    from uuid import uuid4
-    already = await db.datasets.find_one({"workspace_id": target_ws, "media.public_id": ds.get("media", {}).get("public_id")})
+    
+    # Check for duplicate (same media file)
+    already = await db.datasets.find_one({
+        "workspace_id": body.target_workspace_id,
+        "media.public_id": ds.get("media", {}).get("public_id")
+    })
     if already:
         return {"dataset_id": already["_id"], "already_copied": True}
-    import copy as _copy
+    
+    # Check row count limit
+    num_rows = ds.get("num_rows", 0)
+    if num_rows > MAX_ROWS_PER_COPY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dataset has {num_rows} rows, exceeding limit of {MAX_ROWS_PER_COPY}"
+        )
+    
+    # Count chunks before copying
+    chunk_count = await db.document_chunks.count_documents({"document_id": body.dataset_id})
+    if chunk_count > MAX_CHUNKS_PER_COPY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dataset has {chunk_count} chunks, exceeding limit of {MAX_CHUNKS_PER_COPY}"
+        )
+    
+    # Deep copy and update metadata (not embeddings - keep separate)
     new_id = uuid4().hex
-    new_ds = _copy.deepcopy(ds)
+    new_ds = ds.copy()  # Shallow copy is sufficient for top-level
     new_ds["_id"] = new_id
-    new_ds["workspace_id"] = target_ws
+    new_ds["workspace_id"] = body.target_workspace_id
+    new_ds["created_at"] = datetime.now(timezone.utc)
+    
+    # Remove embedding vectors to prevent cross-workspace data leakage
+    # Embeddings are tied to the source workspace's vector index
+    new_ds.pop("embedding", None)
+    
+    # Insert dataset record
     await db.datasets.insert_one(new_ds)
-    chunks = [c async for c in db.document_chunks.find({"document_id": dataset_id})]
-    if chunks:
-        for chunk in chunks:
-            chunk["_id"] = uuid4().hex
-            chunk["document_id"] = new_id
-            chunk["workspace_id"] = target_ws
-        await db.document_chunks.insert_many(chunks)
-    return {"dataset_id": new_id, "already_copied": False}
+    
+    # Copy chunks in batches to avoid memory issues
+    batch_size = 1000
+    chunks_copied = 0
+    async for chunk in db.document_chunks.find({"document_id": body.dataset_id}):
+        chunk["_id"] = uuid4().hex
+        chunk["document_id"] = new_id
+        chunk["workspace_id"] = body.target_workspace_id
+        # Remove embedding vector from chunk to prevent cross-workspace leakage
+        chunk.pop("embedding", None)
+        
+        await db.document_chunks.insert_one(chunk)
+        chunks_copied += 1
+        
+        if chunks_copied >= MAX_CHUNKS_PER_COPY:
+            break
+    
+    return {
+        "dataset_id": new_id,
+        "already_copied": False,
+        "rows_copied": num_rows,
+        "chunks_copied": chunks_copied
+    }
 
 
 @router.delete("/{dataset_id}", status_code=204)

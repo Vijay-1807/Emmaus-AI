@@ -43,6 +43,14 @@ services:
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET
         sync: false
+      - key: MEDIA_STORAGE
+        value: cloudinary
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_IMAGE_MODEL
+        value: "@cf/black-forest-labs/flux-1-schnell"
     healthCheckPath: /api/health
     autoDeploy: true
 
@@ -58,6 +66,8 @@ services:
         sync: false
       - key: MONGODB_DB
         value: vedax
+      - key: SECRET_KEY
+        generateValue: true
       - key: OLLAMA_API_KEY
         sync: false
       - key: OLLAMA_BASE_URL
@@ -78,4 +88,18 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: MEDIA_STORAGE
+        value: cloudinary
     autoDeploy: true

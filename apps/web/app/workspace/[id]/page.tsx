@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowUp, Camera, Trash2, AlertTriangle, Paperclip, Mic } from "lucide-react";
+import { ArrowUp, Camera, Trash2, AlertTriangle, Paperclip, Mic, Sparkles } from "lucide-react";
 import type { UploadProgressValue } from "@/components/ui/upload-progress";
 import ReactMarkdown from "react-markdown";
 import { GradientBackground } from "@/components/ui/pipo";
 import LoadingState from "@/components/ui/loading-state";
 import CameraCapture from "@/components/CameraCapture";
 import VoiceRecordModal from "@/components/VoiceRecordModal";
+import ImageGenerator from "@/components/ImageGenerator";
 import AttachmentChips, { chipKey } from "@/components/AttachmentChips";
 import ChartViewer from "@/components/ui/ChartViewer";
 import AgentPipelineTracker, { type PipelineNodeEvent } from "@/components/AgentPipelineTracker";
@@ -40,6 +41,7 @@ export default function WorkspacePage() {
   const [streaming, setStreaming] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [showImageGenerator, setShowImageGenerator] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [showSources, setShowSources] = useState(false);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
@@ -58,6 +60,8 @@ export default function WorkspacePage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sendingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   async function uploadWorkspaceFile(file: File) {
     const key = chipKey(file);
@@ -65,46 +69,63 @@ export default function WorkspacePage() {
     const form = new FormData();
     form.append("file", file);
     setChipProgress((prev) => ({ ...prev, [key]: { stage: "uploading", progress: 20 } }));
+    
+    // Create abort controller for this upload
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    
     try {
       if (file.type.startsWith("image/") || file.type.startsWith("audio/")) {
         const m = await apiFetch<MediaAsset>(`/api/media/upload?workspace_id=${wsId}`, { method: "POST", body: form });
+        if (abortController.signal.aborted) return;
         setUploadedChips((prev) => ({ ...prev, [key]: { id: m.id, kind: m.kind } }));
         setChipProgress((prev) => ({ ...prev, [key]: { stage: "ready", progress: 100 } }));
         // Add to local media list so sources panel updates
         setMediaList((prev) => [...prev, m]);
       } else if (["csv", "xlsx", "xls"].includes(ext)) {
         const ds = await apiFetch<Dataset>(`/api/datasets/upload?workspace_id=${wsId}`, { method: "POST", body: form });
+        if (abortController.signal.aborted) return;
         setChipProgress((prev) => ({ ...prev, [key]: { stage: "processing", progress: 60 } }));
-        // Poll until ready
+        // Poll until ready with abort support
         for (let i = 0; i < 60; i++) {
+          if (abortController.signal.aborted) return;
           const s = await apiFetch<Dataset>(`/api/datasets/${ds.id}?workspace_id=${wsId}`);
           if (s.status === "ready") break;
           if (s.status === "failed") throw new Error(s.error || "Dataset processing failed");
           setChipProgress((prev) => ({ ...prev, [key]: { stage: "processing", progress: Math.min(95, 60 + i * 2) } }));
           await new Promise((r) => setTimeout(r, 500));
         }
+        if (abortController.signal.aborted) return;
         setUploadedChips((prev) => ({ ...prev, [key]: { id: ds.id, kind: "dataset" } }));
         setChipProgress((prev) => ({ ...prev, [key]: { stage: "ready", progress: 100 } }));
         setDatasets((prev) => [...prev, ds]);
       } else {
         const doc = await apiFetch<Document>(`/api/documents/upload?workspace_id=${wsId}`, { method: "POST", body: form });
+        if (abortController.signal.aborted) return;
         setChipProgress((prev) => ({ ...prev, [key]: { stage: "processing", progress: 60 } }));
         for (let i = 0; i < 120; i++) {
+          if (abortController.signal.aborted) return;
           const s = await apiFetch<Document>(`/api/documents/${doc.id}?workspace_id=${wsId}`);
           if (s.status === "ready") break;
           if (s.status === "failed") throw new Error(s.error || "Document processing failed");
           setChipProgress((prev) => ({ ...prev, [key]: { stage: "processing", progress: Math.min(95, 60 + i * 3) } }));
           await new Promise((r) => setTimeout(r, 400));
         }
+        if (abortController.signal.aborted) return;
         setUploadedChips((prev) => ({ ...prev, [key]: { id: doc.id, kind: "document" } }));
         setChipProgress((prev) => ({ ...prev, [key]: { stage: "ready", progress: 100 } }));
         setDocuments((prev) => [...prev, doc]);
       }
     } catch (err) {
+      if (abortController.signal.aborted) return;
       setChipProgress((prev) => ({
         ...prev,
         [key]: { stage: "failed", progress: 100, error: err instanceof Error ? err.message : "Upload failed" },
       }));
+    } finally {
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
     }
   }
 
@@ -217,6 +238,22 @@ export default function WorkspacePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsId]);
 
+  // Cleanup effect: cancel ongoing operations on unmount
+  useEffect(() => {
+    return () => {
+      // Cancel any ongoing upload polling
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      // Cancel any ongoing streaming reader
+      if (readerRef.current) {
+        readerRef.current.cancel().catch(() => {});
+        readerRef.current = null;
+      }
+    };
+  }, []);
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -249,6 +286,11 @@ export default function WorkspacePage() {
     setPipelineEvents([]);
     setActiveNode("classify");
 
+    // Create abort controller for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
     try {
       const res = await apiRequest("/api/chat/stream", {
         method: "POST",
@@ -265,8 +307,10 @@ export default function WorkspacePage() {
         throw new Error(body.detail || "Unable to start investigation.");
       }
 
-      const reader = res.body?.getReader();
+      reader = res.body?.getReader() ?? null;
       if (!reader) throw new Error("The server returned an empty response.");
+      readerRef.current = reader;
+      
       const decoder = new TextDecoder();
       let buffer = "";
       let assistantContent = "";
@@ -276,6 +320,9 @@ export default function WorkspacePage() {
       let confidence: number | null = null;
 
       while (true) {
+        // Check if component unmounted or request was cancelled
+        if (abortController.signal.aborted) break;
+        
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -340,12 +387,23 @@ export default function WorkspacePage() {
         }
       }
     } catch (err) {
+      if (abortController.signal.aborted) return;
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = { role: "assistant", content: `Error: ${err instanceof Error ? err.message : "Connection failed"}` };
         return updated;
       });
     } finally {
+      // Clean up reader
+      if (reader) {
+        try {
+          await reader.cancel();
+        } catch {}
+        readerRef.current = null;
+      }
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
       sendingRef.current = false;
       setStreaming(false);
     }
@@ -708,6 +766,17 @@ export default function WorkspacePage() {
                     <Mic size={14} />
                     <span className="hidden sm:inline">Voice</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowImageGenerator(true)}
+                    disabled={streaming}
+                    className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs text-[#5f5953] transition hover:bg-black/[.06]"
+                    title="Generate image with AI"
+                    aria-label="Generate image"
+                  >
+                    <Sparkles size={14} />
+                    <span className="hidden sm:inline">Image Gen</span>
+                  </button>
                 </div>
                   <button
                     onClick={() => void sendMessage()}
@@ -756,6 +825,17 @@ export default function WorkspacePage() {
             void addWorkspaceFiles([file]);
           }}
         />
+      )}
+
+      {showImageGenerator && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="w-full max-w-lg h-[80vh] rounded-2xl border border-black/[.08] bg-[#fffdfa] shadow-2xl overflow-hidden">
+            <ImageGenerator
+              workspaceId={wsId}
+              onClose={() => setShowImageGenerator(false)}
+            />
+          </div>
+        </div>
       )}
 
       {/* Citation Inspector Drawer */}

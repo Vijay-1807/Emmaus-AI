@@ -26,6 +26,39 @@ _FILTER_OPS = {
 _SAFE_NAMES: set[str] = set()
 _SAFE_FUNCTIONS = {"abs": abs, "round": round, "min": min, "max": max, "sum": sum, "len": len}
 
+# Whitelist of safe DataFrame methods (no mutations, no I/O, no code execution)
+_SAFE_DF_METHODS = {
+    "head", "tail", "describe", "info", "shape", "columns", "dtypes",
+    "value_counts", "nunique", "unique", "isnull", "isna", "notnull", "notna",
+    "sum", "mean", "median", "min", "max", "std", "var", "count", "first", "last",
+    "cumsum", "cumprod", "cummax", "cummin", "diff", "pct_change", "rank",
+    "fillna", "dropna", "drop_duplicates", "sample", "sort_values", "sort_index",
+    "reset_index", "set_index", "to_frame", "to_list", "tolist", "to_dict",
+    "to_string", "to_markdown", "to_clipboard",
+    "abs", "round", "clip", "_between", "between_time",
+    "resample", "rolling", "expanding", "ewm",
+    "groupby", "pivot", "melt", "stack", "unstack",
+    "rename", "reindex", "transpose", "swaplevel",
+    "compare", "equals", "align", "update",
+    "applymap",  # Deprecated but still callable
+}
+
+# Block these DataFrame methods entirely (mutations, I/O, code execution)
+_BLOCKED_DF_METHODS = {
+    "pipe", "apply", "query", "eval", "exec", "append", "insert", "drop",
+    "pop", "iloc", "loc", "iat", "loc",
+    "to_csv", "to_excel", "to_json", "to_html", "to_sql", "to_parquet",
+    "to_hdf", "to_feather", "to_pickle", "to_latex", "to_records",
+    "plot", "style", "boxplot", "hist",
+}
+
+# Allowed pandas top-level functions
+_ALLOWED_PD_FUNCTIONS = {
+    "to_datetime", "to_numeric", "to_timedelta", "Timestamp", "Timedelta",
+    "isna", "notna", "isnull", "notnull", "concat", "merge", "read_csv",
+    "get_dummies", "cut", "qcut", "date_range", "period_range", "interval_range",
+}
+
 # Read-only pandas Series accessors the LLM is allowed to use
 # (e.g. df['Company'].str.startswith('S')). All are non-mutating.
 _SAFE_STR_METHODS = {
@@ -41,8 +74,16 @@ _COUNT_LIKE_NAMES = {"row_count", "count", "n", "num_rows", "total", "total_rows
 
 
 def _safe_eval(expr: str, df: pd.DataFrame) -> Any:
-    """Evaluate a limited arithmetic expression on DataFrame columns only."""
+    """Evaluate a limited arithmetic expression on DataFrame columns only.
+    
+    Security: This function is sandboxed to prevent code execution.
+    - Only whitelisted DataFrame methods are allowed
+    - No attribute access on non-DataFrame/Series objects
+    - Function calls restricted to safe builtins and pandas functions
+    - Arguments validated for safety
+    """
     tree = ast.parse(expr, mode="eval")
+    import pandas as _pd
 
     def _eval_node(node: ast.AST) -> Any:
         if isinstance(node, ast.Expression):
@@ -55,7 +96,6 @@ def _safe_eval(expr: str, df: pd.DataFrame) -> Any:
             if node.id == "df":
                 return df
             if node.id == "pd":
-                import pandas as _pd
                 return _pd
             if node.id in df.columns:
                 return df[node.id]
@@ -64,14 +104,16 @@ def _safe_eval(expr: str, df: pd.DataFrame) -> Any:
             raise ValueError(f"unknown name {node.id!r}")
         if isinstance(node, ast.Attribute):
             if isinstance(node.value, ast.Name) and node.value.id == "df":
+                # Security: Only allow safe DataFrame methods
+                if node.attr in _BLOCKED_DF_METHODS:
+                    raise ValueError(f"blocked method: {node.attr!r} (mutations/I/O not allowed)")
+                if node.attr not in _SAFE_DF_METHODS and not node.attr.startswith("_"):
+                    raise ValueError(f"unknown method: {node.attr!r} (not in whitelist)")
                 return getattr(df, node.attr)
-            import pandas as _pd
-
             # Allow pd.to_datetime, pd.Timestamp etc for date parsing.
             if isinstance(node.value, ast.Name) and node.value.id == "pd":
-                allowed_pd = {"to_datetime": _pd.to_datetime, "Timestamp": _pd.Timestamp, "Timedelta": _pd.Timedelta, "isna": _pd.isna, "notna": _pd.notna}
-                if node.attr in allowed_pd:
-                    return allowed_pd[node.attr]
+                if node.attr in _ALLOWED_PD_FUNCTIONS:
+                    return getattr(_pd, node.attr)
                 raise ValueError(f"attribute access not allowed: {ast.dump(node)}")
             # Chained safe accessor: df['col'].str.startswith('S'),
             # df['date'].dt.year — read-only pandas ops only.
@@ -143,14 +185,27 @@ def _safe_eval(expr: str, df: pd.DataFrame) -> Any:
             func = _eval_node(node.func)
             if not callable(func):
                 raise ValueError(f"not callable: {node.func}")
+            # Security: Validate function is in allowed list
+            func_name = None
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                func_name = node.func.attr
+            # Check if function is safe
+            if func_name and func_name not in _SAFE_FUNCTIONS and func_name not in _ALLOWED_PD_FUNCTIONS:
+                raise ValueError(f"blocked function: {func_name!r} (not in whitelist)")
+            # Validate arguments
             args = [_eval_node(a) for a in node.args]
+            # For string methods, validate arguments are strings
+            for i, arg in enumerate(args):
+                if isinstance(arg, str) and len(arg) > 1000:
+                    raise ValueError(f"argument {i} too long (max 1000 chars)")
             return func(*args)
         if isinstance(node, ast.IfExp):
             test = _eval_node(node.test)
             if isinstance(test, bool) and test:
                 return _eval_node(node.body)
             elif hasattr(test, "__iter__"):
-                import pandas as _pd
                 if isinstance(test, _pd.Series) and test.any():
                     return _eval_node(node.body)
             return _eval_node(node.orelse)

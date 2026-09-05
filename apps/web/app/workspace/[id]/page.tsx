@@ -810,6 +810,9 @@ function cleanAssistantContent(content: string): string {
     .replace(/^\s*Confidence:\s*.*$/gim, "")
     .replace(/[—–]/g, "-")
     .replace(/\u00a0/g, " ")
+    // GPT-OSS emits narrow/thin Unicode spaces (U+202F etc.) that break
+    // copy-paste search and look inconsistent in the chat view.
+    .replace(/[\u202f\u2009\u2007\u2002\u2003\u2005\u205f]/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -15,6 +16,27 @@ logger = logging.getLogger("vedax.telegram")
 
 API_BASE = "https://api.telegram.org"
 MAX_MESSAGE = 4000
+
+# GPT-OSS citation tokens (【1†L2-L3】), bracketed refs, confidence lines,
+# and Unicode narrow spaces that Telegram renders oddly.
+_CITATION_TOKEN_RE = re.compile(
+    r"【[^】]*】|\[\d+†[^\]]*\]|\[\^?\d+(?:\s*,\s*\^?\d+)*\]"
+)
+_UNICODE_SPACE_RE = re.compile(
+    r"[\u00a0\u202f\u2009\u2007\u2002\u2003\u2004\u2005\u2006\u2008\u205f]"
+)
+_CONFIDENCE_LINE_RE = re.compile(r"^\s*Confidence:\s*.*$", re.IGNORECASE | re.MULTILINE)
+
+
+def clean_answer_for_telegram(text: str) -> str:
+    """Mirror the website's answer cleaning so Telegram gets the same polish."""
+    cleaned = _CITATION_TOKEN_RE.sub("", text)
+    cleaned = _UNICODE_SPACE_RE.sub(" ", cleaned)
+    cleaned = _CONFIDENCE_LINE_RE.sub("", cleaned)
+    cleaned = cleaned.replace("\u2014", "-").replace("\u2013", "-")
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 # Free-tier protection: burst caps per chat (Groq 429s hurt everyone).
 MAX_MSGS_PER_MINUTE = 8
@@ -563,7 +585,7 @@ async def handle_update(update: dict) -> None:
         await release_chat_lock(link["_id"], lock_token)
     await send_message(
         chat_id,
-        final_answer or "Something went wrong. Please try again.",
+        clean_answer_for_telegram(final_answer or "Something went wrong. Please try again."),
         reply_markup=answer_keyboard(investigation_id),
     )
 

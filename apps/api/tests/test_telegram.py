@@ -165,3 +165,20 @@ async def test_update_claim_is_idempotent():
     await db_module._db.telegram_updates.create_index("update_id", unique=True)
     assert await tg.claim_update(123456) is True
     assert await tg.claim_update(123456) is False
+
+
+def test_clean_answer_for_telegram_strips_model_artifacts():
+    raw = (
+        "- **Aurora:** It processes **12\u202fmillion lookups/s**【1†L1-L2】.\n"
+        "- Beacon refreshes **every 90\u202fseconds**【2†L3】.\n\n"
+        "Confidence: high - the handbook explicitly provides both figures."
+    )
+    cleaned = tg.clean_answer_for_telegram(raw)
+    assert "【" not in cleaned and "†" not in cleaned
+    assert "12 million" in cleaned and "90 seconds" in cleaned
+    assert "Confidence" not in cleaned
+    assert "\u202f" not in cleaned
+
+
+def test_clean_answer_for_telegram_preserves_plain_text():
+    assert tg.clean_answer_for_telegram("Hello! How can I assist?") == "Hello! How can I assist?"

@@ -2,7 +2,7 @@ services:
   - type: web
     name: emmaus-api
     runtime: docker
-    dockerfilePath: infra/docker/Dockerfile.api
+    dockerfilePath: apps/api/Dockerfile
     dockerContext: apps/api
     envVars:
       - key: ENVIRONMENT
@@ -49,7 +49,7 @@ services:
   - type: worker
     name: emmaus-worker
     runtime: docker
-    dockerfilePath: infra/docker/Dockerfile.worker
+    dockerfilePath: apps/api/Dockerfile.worker
     dockerContext: apps/api
     envVars:
       - key: ENVIRONMENT

@@ -89,7 +89,7 @@ async def create_anonymous_session() -> dict:
     anon_id = f"anon_{uuid.uuid4().hex}"
     user = {
         "_id": anon_id,
-        "email": f"{anon_id}@guest.vedax.ai",
+        "email": f"{anon_id}@guest.emmaus.ai",
         "name": "Guest",
         "password_hash": "",
         "is_anonymous": True,

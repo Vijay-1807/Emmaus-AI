@@ -17,7 +17,10 @@
 | data_analysis | 10 | Pandas operations |
 | conversational | 5 | Follow-up / context-dependent |
 
-**Total: 75 cases**
+The repository contains seed cases for the benchmark. The live evaluation
+dataset is configurable: cases can be seeded from the JSON file or generated
+from recent investigations in Settings. The API reports the actual number of
+cases in each run; do not assume a fixed total after adding or removing cases.
 
 ## Metrics
 

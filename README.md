@@ -9,7 +9,7 @@ Upload documents, datasets, images, handwritten pages, or audio. Ask a question.
 ## 60-Second Demo
 
 ```
-1. Open vedaX.ai
+1. Open the deployed Emmaus AI frontend
 2. Upload: quarterly_report.pdf, sales.xlsx, handwritten_notes.jpg
 3. Ask: "Why did Q3 revenue decline?"
 4. Watch:
@@ -178,6 +178,32 @@ No `exec()`. 7 allow-listed operations:
 | Database | MongoDB Atlas (M0+) | Vector + lexical search indexes |
 | Media | Cloudinary | |
 | Observability | Langfuse Cloud | |
+
+### Cloudinary Setup
+
+Cloudinary is optional. Emmaus uses local storage automatically when
+Cloudinary is not configured or when Cloudinary rejects an upload.
+
+To enable Cloudinary:
+
+1. Open Cloudinary Console and select the correct product environment.
+2. Open **Developers → API Keys**.
+3. Copy the active **Cloud name**, **API Key**, and **API Secret**.
+4. Confirm the API key has upload/create permission.
+5. Set these backend variables:
+
+```env
+MEDIA_STORAGE=auto
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-upload-enabled-key
+CLOUDINARY_API_SECRET=your-api-secret
+```
+
+If Cloudinary returns `Request forbidden` with `actions=["create"]`, the key
+does not have upload permission. Generate a new active API key in the Cloudinary
+API Keys page or set `MEDIA_STORAGE=local`. This is a Cloudinary account/key
+permission issue, not an Emmaus application-code issue. Emmaus preserves
+uploads through local fallback while the key is being fixed.
 
 ## Quick Start
 

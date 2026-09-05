@@ -23,7 +23,7 @@ FastAPI Backend (Render)
         │       └── generate    (streamed final answer)
         │
         ├── Model Router (Groq → Ollama → Mock fallback)
-        ├── Embedding Service (Gemini 001 → Ollama → Local → Mock)
+        ├── Embedding Service (Jina 1024D → Local/Mock fallback)
         ├── RAG Pipeline (Vector + Lexical + RRF + Rerank)
         ├── Background Worker (MongoDB job queue)
         └── Telegram Bot

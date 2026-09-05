@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
-    # Cerebras (PRIMARY provider)
+    # Cerebras is retained as disabled legacy configuration.
     cerebras_api_key: str = ""
     cerebras_base_url: str = "https://api.cerebras.ai/v1"
     cerebras_chat_model: str = "gpt-oss-120b"

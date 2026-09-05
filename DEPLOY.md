@@ -35,7 +35,7 @@ uv run python scripts/setup_search_indexes.py
 ```
 
 Or manually in Atlas → Atlas Search → Create Index:
-- Database: `vedax`
+- Database: `vedax` (kept for compatibility with the existing application data)
 - Collection: `document_chunks`
 - Index name: `vector_index`
 - Field: `embedding`, type: `vector`, dimensions: `1024`, similarity: `cosine`
@@ -49,17 +49,25 @@ Then create second index:
 
 ## Step 2: Cloudinary (3 minutes)
 
-1. Go to https://cloudinary.com
-2. Sign up free
-3. Get from Dashboard:
-   - Cloud Name
-   - API Key
+1. Go to https://cloudinary.com and open your product environment.
+2. In the left navigation, open **Developers → API Keys**.
+3. Confirm the **Cloud name** matches `CLOUDINARY_CLOUD_NAME`.
+4. Use an **Active** API key and copy its API Key and API Secret into:
+    - Cloud Name
+    - API Key
     - API Secret
 
-4. In Cloudinary Console, verify the API key has upload/create permission.
-   If the key returns `Request forbidden ... actions=["create"]`, rotate the
-   key or set `MEDIA_STORAGE=local`; Emmaus safely falls back to local media,
-   but Cloudinary itself cannot work without an upload-enabled key.
+5. The key must have permission for upload/create actions. If the key screen
+   shows `Request forbidden` or `actions=["create"]`, click **Generate New API
+   Key**, create a fresh key in the same product environment, and replace the
+   Render values. Do not commit the secret.
+6. Set `MEDIA_STORAGE=auto` to use Cloudinary with local fallback, or
+   `MEDIA_STORAGE=local` if you do not want Cloudinary.
+
+Emmaus now slugifies filenames and stops retrying Cloudinary after a permission
+failure. A broken key will not break uploads: media is saved locally instead.
+Cloudinary itself cannot be enabled by application code unless the dashboard
+key has upload/create permission.
 
 ---
 

@@ -73,7 +73,7 @@ async def client():
 async def auth_headers(client):
     response = await client.post(
         "/api/auth/register",
-        json={"email": "tester@vedax.ai", "password": "supersecret123", "name": "Tester"},
+        json={"email": "tester@emmaus.ai", "password": "supersecret123", "name": "Tester"},
     )
     assert response.status_code == 201, response.text
     token = response.json()["access_token"]

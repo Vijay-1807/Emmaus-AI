@@ -230,7 +230,7 @@ async def get_or_create_link(chat_id: int, from_user: dict) -> dict:
     await db.users.insert_one(
         {
             "_id": user_id,
-            "email": f"tg-{chat_id}@telegram.vedax.local",
+            "email": f"tg-{chat_id}@telegram.emmaus.local",
             "name": from_user.get("first_name", "Telegram User"),
             "password_hash": hash_password(uuid.uuid4().hex),
             "created_at": now(),

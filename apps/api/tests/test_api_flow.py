@@ -20,7 +20,7 @@ async def test_health(client):
 async def test_auth_flow(client):
     register = await client.post(
         "/api/auth/register",
-        json={"email": "flow@vedax.ai", "password": "supersecret123", "name": "Flow"},
+        json={"email": "flow@emmaus.ai", "password": "supersecret123", "name": "Flow"},
     )
     assert register.status_code == 201
     tokens = register.json()
@@ -28,12 +28,12 @@ async def test_auth_flow(client):
 
     duplicate = await client.post(
         "/api/auth/register",
-        json={"email": "flow@vedax.ai", "password": "supersecret123", "name": "Flow"},
+        json={"email": "flow@emmaus.ai", "password": "supersecret123", "name": "Flow"},
     )
     assert duplicate.status_code == 409
 
     bad_login = await client.post(
-        "/api/auth/login", json={"email": "flow@vedax.ai", "password": "wrong"}
+        "/api/auth/login", json={"email": "flow@emmaus.ai", "password": "wrong"}
     )
     assert bad_login.status_code == 401
 
@@ -46,7 +46,7 @@ async def test_auth_flow(client):
         "/api/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"}
     )
     assert me.status_code == 200
-    assert me.json()["email"] == "flow@vedax.ai"
+    assert me.json()["email"] == "flow@emmaus.ai"
 
     me_no_token = await client.get("/api/auth/me")
     assert me_no_token.status_code == 401
@@ -58,7 +58,7 @@ async def test_anonymous_auth_flow(client):
     assert response.status_code == 201, response.text
     tokens = response.json()
     assert tokens["access_token"] and tokens["refresh_token"]
-    assert tokens["user"]["email"].endswith("@guest.vedax.ai")
+    assert tokens["user"]["email"].endswith("@guest.emmaus.ai")
 
     me = await client.get(
         "/api/auth/me",
@@ -72,7 +72,7 @@ async def test_anonymous_auth_flow(client):
 async def test_workspace_isolation(client, auth_headers, workspace):
     other = await client.post(
         "/api/auth/register",
-        json={"email": "other@vedax.ai", "password": "supersecret123", "name": "Other"},
+        json={"email": "other@emmaus.ai", "password": "supersecret123", "name": "Other"},
     )
     other_token = other.json()["access_token"]
     response = await client.get(

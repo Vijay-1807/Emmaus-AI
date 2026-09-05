@@ -1,4 +1,4 @@
-"""Run full 75-case benchmark and produce metrics report.
+"""Run the configured Emmaus evaluation benchmark and produce metrics report.
 
 Usage:
     cd apps/api
@@ -38,7 +38,7 @@ async def main():
     parser.add_argument("--mode", default="hybrid_rerank", help="retrieval mode")
     parser.add_argument("--output", default="benchmark_results.json", help="output file")
     parser.add_argument("--categories", nargs="*", help="filter categories")
-    parser.add_argument("--max-cases", type=int, default=75, help="max cases to run")
+    parser.add_argument("--max-cases", type=int, default=200, help="max cases to run")
     args = parser.parse_args()
 
     await connect_db()

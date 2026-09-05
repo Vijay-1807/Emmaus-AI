@@ -66,7 +66,7 @@ WELCOME_TEXT = (
     "• \"What are the key insights in my dataset?\"\n"
     "• \"Analyze this photo\"\n\n"
     "📎 *Tips:* Attach a file with a caption, or use /generate <prompt> for AI images.\n\n"
-    "Commands: /new  /history  /status  /help"
+    "Commands: /new  /clear  /history  /status  /generate  /help"
 )
 
 HELP_TEXT = (
@@ -75,7 +75,8 @@ HELP_TEXT = (
     "• Type any question about your sources.\n"
     "• Attach a doc (PDF/DOCX/TXT/MD), dataset (CSV/XLSX/XLS), photo, or voice note — with or without a caption.\n\n"
     "*Commands:*\n"
-    "• /new — fresh chat (clears memory)\n"
+    "• /new — fresh chat (clears conversation memory)\n"
+    "• /clear — wipe all workspace data (docs, datasets, history)\n"
     "• /history — last 5 investigations\n"
     "• /status — your docs / datasets / media / chats\n"
     "• /generate <prompt> — generate an image with AI\n"
@@ -253,8 +254,8 @@ def persistent_keyboard() -> dict:
     """Bottom reply-keyboard so commands are always one tap away (not a slash)."""
     return {
         "keyboard": [
-            [{"text": "/status"}, {"text": "/history"}, {"text": "/new"}, {"text": "/generate"}],
-            [{"text": "/help"}],
+            [{"text": "/status"}, {"text": "/history"}, {"text": "/new"}, {"text": "/clear"}],
+            [{"text": "/generate"}, {"text": "/help"}],
         ],
         "resize_keyboard": True,
         "is_persistent": True,
@@ -436,7 +437,7 @@ async def wait_for_ingestion(collection: str, source_id: str, timeout_seconds: i
 
 
 async def extract_question(
-    message: dict, workspace_id: str, owner_id: str
+    message: dict, workspace_id: str, owner_id: str, chat_id: int | None = None
 ) -> tuple[str, list[str], str | None]:
     text = (message.get("text") or message.get("caption") or "").strip()
     attachment_ids: list[str] = []
@@ -493,7 +494,8 @@ async def extract_question(
             analysis = await analyze_image(data, "image/jpeg")
         except Exception as exc:
             logger.warning("telegram photo analysis failed: %s", exc)
-            await send_message(chat_id, "⚠️ Image analysis partially failed — I'll do my best with the text question.")
+            if chat_id:
+                await send_message(chat_id, "⚠️ Image analysis partially failed — I'll do my best with the text question.")
         media = {
             "_id": uuid.uuid4().hex,
             "workspace_id": workspace_id,
@@ -625,6 +627,32 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
             {"$set": {"conversation_id": None, "last_investigation_id": None}},
         )
         await send_message(chat_id, "💬 Fresh chat started — previous context cleared.")
+        return True
+    if cmd == "/clear":
+        if link.get("locked"):
+            await send_message(chat_id, "⏳ Still working on something — try /clear in a moment.")
+            return True
+        # Wipe all workspace data
+        db = get_db()
+        ws = workspace_id
+        docs = await db.documents.delete_many({"workspace_id": ws})
+        datasets = await db.datasets.delete_many({"workspace_id": ws})
+        media = await db.media_assets.delete_many({"workspace_id": ws})
+        convs = await db.conversations.delete_many({"workspace_id": ws})
+        invs = await db.investigations.delete_many({"workspace_id": ws})
+        await db.telegram_links.update_one(
+            {"_id": link["_id"]},
+            {"$set": {"conversation_id": None, "last_investigation_id": None}},
+        )
+        total = docs.deleted_count + datasets.deleted_count + media.deleted_count + convs.deleted_count + invs.deleted_count
+        await send_message(
+            chat_id,
+            f"🗑️ *Workspace cleared*\n\n"
+            f"Deleted: {docs.deleted_count} docs, {datasets.deleted_count} datasets, "
+            f"{media.deleted_count} media, {convs.deleted_count} conversations, "
+            f"{invs.deleted_count} investigations.\n\n"
+            f"Start fresh — upload a file or ask a question!",
+        )
         return True
     if cmd == "/history":
         cursor = (
@@ -768,7 +796,8 @@ async def handle_update(update: dict) -> None:
     lock_token = await claim_chat_lock(link["_id"])
     if not lock_token:
         # Force-clear stale locks older than 5 minutes so user isn't stuck forever
-        stale = await db.telegram_links.find_one({
+        _db = get_db()
+        stale = await _db.telegram_links.find_one({
             "_id": link["_id"],
             "locked": True,
             "lock_expires_at": {"$lt": now()},
@@ -782,7 +811,7 @@ async def handle_update(update: dict) -> None:
     await send_action(chat_id, "typing")
     try:
         text, attachment_ids, audio_media_id = await extract_question(
-            message, workspace_id, link["user_id"]
+            message, workspace_id, link["user_id"], chat_id=chat_id
         )
         if not text and not attachment_ids and not audio_media_id:
             await send_message(
@@ -842,9 +871,9 @@ async def handle_update(update: dict) -> None:
     finally:
         stop_typing.set()
         try:
-            await typing_task
-        except Exception:
-            pass
+            await asyncio.wait_for(typing_task, timeout=2.0)
+        except (asyncio.TimeoutError, Exception):
+            typing_task.cancel()
         await release_chat_lock(link["_id"], lock_token)
     elapsed = (now() - start_time).total_seconds()
     answer_text = clean_answer_for_telegram(final_answer or "Something went wrong. Please try again.")

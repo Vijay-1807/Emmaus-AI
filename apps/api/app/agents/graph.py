@@ -1,7 +1,10 @@
+import asyncio
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
+import httpx
 from langgraph.graph import END, START, StateGraph
 
 from app.agents import events
@@ -228,16 +231,38 @@ async def _resolve_attachment_documents(state: InvestigationState) -> list[str]:
     return found
 
 
+_DATASET_WAIT_SECONDS = 15
+
 async def data_node(state: InvestigationState) -> dict:
     db = get_db()
     ctx = events.get_run_ctx()
     attachment_ids = state.get("attachment_ids") or []
-    cursor = db.datasets.find({"workspace_id": state["workspace_id"], "status": "ready"})
-    targets = []
-    async for dataset in cursor:
-        if not attachment_ids or dataset["_id"] in attachment_ids:
-            targets.append(dataset)
-    targets = targets[:3]
+
+    async def _ready_targets() -> list[dict]:
+        found: list[dict] = []
+        cursor = db.datasets.find({"workspace_id": state["workspace_id"], "status": "ready"})
+        async for dataset in cursor:
+            if not attachment_ids or dataset["_id"] in attachment_ids:
+                found.append(dataset)
+        return found[:3]
+
+    targets = await _ready_targets()
+    if not targets:
+        # Datasets index asynchronously after upload; a question asked
+        # immediately can arrive while they are still "processing". Wait
+        # briefly instead of answering with no data.
+        processing = await db.datasets.count_documents(
+            {"workspace_id": state["workspace_id"], "status": "processing"}
+        )
+        if processing:
+            events.emit(
+                {"type": "node", "node": "data", "detail": "waiting for dataset indexing"}
+            )
+            for _ in range(_DATASET_WAIT_SECONDS):
+                await asyncio.sleep(1)
+                targets = await _ready_targets()
+                if targets:
+                    break
     if not targets:
         events.emit({"type": "node", "node": "data", "detail": "no datasets available"})
         return {"data_results": []}
@@ -267,44 +292,157 @@ async def data_node(state: InvestigationState) -> dict:
     return {"data_results": results}
 
 
+_LOCAL_MEDIA_DIR = Path("media")
+_VISION_ON_DEMAND_MAX = 3
+
+_IMAGE_MIMES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+}
+
+
+def _mime_for_image(filename: str) -> str:
+    lower = (filename or "").lower()
+    for ext, mime in _IMAGE_MIMES.items():
+        if lower.endswith(ext):
+            return mime
+    return "image/jpeg"
+
+
+async def _load_media_bytes(media: dict, filename: str) -> tuple[bytes, str] | None:
+    """Load raw image bytes for on-demand analysis (local disk or remote URL).
+
+    Local lookup order: persisted bytes_path, then the stored URL (which
+    carries the true on-disk filename), then the legacy public_id derivation.
+    """
+    mode = media.get("storage_mode") or media.get("mode") or ""
+    url = media.get("url") or ""
+    public_id = media.get("public_id") or ""
+    candidates: list[Path] = []
+    raw_path = media.get("bytes_path")
+    if raw_path:
+        candidates.append(Path(raw_path))
+        stripped = str(raw_path).replace("\\", "/")
+        if stripped.startswith("media/"):
+            candidates.append(_LOCAL_MEDIA_DIR / stripped[len("media/"):])
+    if mode == "local" or url.startswith("/media/"):
+        if url.startswith("/media/"):
+            candidates.append(_LOCAL_MEDIA_DIR / url[len("/media/"):])
+        elif public_id:
+            rel = public_id.split("/", 1)[1] if "/" in public_id else public_id
+            candidates.append(_LOCAL_MEDIA_DIR / rel)
+    for path in candidates:
+        try:
+            if path.is_file():
+                return path.read_bytes(), _mime_for_image(filename)
+        except OSError as exc:
+            logger.warning("vision on-demand local read failed: %s", exc)
+            return None
+    if url.startswith("http"):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                mime = response.headers.get("content-type", "").split(";")[0].strip()
+                return response.content, mime or _mime_for_image(filename)
+        except Exception as exc:
+            logger.warning("vision on-demand remote fetch failed: %s", exc)
+            return None
+    return None
+
+
+async def _analyze_image_on_demand(
+    db, collection: str, record_id: str, media: dict, filename: str
+) -> dict | None:
+    """Run vision analysis now for images whose upload-time analysis is missing,
+    and persist it so the next question is instant."""
+    from app.vision.analyzer import analyze_image
+
+    loaded = await _load_media_bytes(media, filename)
+    if not loaded:
+        return None
+    data, mime = loaded
+    try:
+        analysis = await analyze_image(data, mime)
+    except Exception as exc:
+        logger.warning("vision on-demand analysis failed: %s", exc)
+        return None
+    if not analysis:
+        return None
+    try:
+        await db[collection].update_one({"_id": record_id}, {"$set": {"analysis": analysis}})
+    except Exception as exc:
+        logger.warning("vision analysis persist failed: %s", exc)
+    return analysis
+
+
 async def vision_node(state: InvestigationState) -> dict:
     db = get_db()
     attachment_ids = state.get("attachment_ids") or []
     results = []
     ws_id = state["workspace_id"]
+    on_demand_used = 0
     if attachment_ids:
         for attachment_id in attachment_ids:
             media = await db.media_assets.find_one(
                 {"_id": attachment_id, "kind": "image", "workspace_id": ws_id}
             )
-            if media and media.get("analysis"):
-                results.append(
-                    {
-                        "source_name": media.get("filename", "image"),
-                        "description": media["analysis"].get("description", ""),
-                        "extracted_text": media["analysis"].get("extracted_text", ""),
-                        "is_handwritten": media["analysis"].get("is_handwritten", False),
-                        "key_observations": media["analysis"].get("key_observations", []),
-                        "confidence": media["analysis"].get("confidence", 0.0),
-                        "media_url": media.get("url"),
-                    }
-                )
-                continue
+            if media:
+                analysis = media.get("analysis")
+                if not analysis and on_demand_used < _VISION_ON_DEMAND_MAX:
+                    events.emit(
+                        {"type": "node", "node": "vision", "detail": "analyzing image now"}
+                    )
+                    analysis = await _analyze_image_on_demand(
+                        db, "media_assets", media["_id"], media,
+                        media.get("filename", "image"),
+                    )
+                    if analysis:
+                        on_demand_used += 1
+                if analysis:
+                    results.append(
+                        {
+                            "source_name": media.get("filename", "image"),
+                            "description": analysis.get("description", ""),
+                            "extracted_text": analysis.get("extracted_text", ""),
+                            "is_handwritten": analysis.get("is_handwritten", False),
+                            "key_observations": analysis.get("key_observations", []),
+                            "confidence": analysis.get("confidence", 0.0),
+                            "media_url": media.get("url"),
+                        }
+                    )
+                    continue
             document = await db.documents.find_one(
                 {"_id": attachment_id, "source_type": "image", "workspace_id": ws_id}
             )
-            if document and document.get("analysis"):
-                results.append(
-                    {
-                        "source_name": document["filename"],
-                        "description": document["analysis"].get("description", ""),
-                        "extracted_text": document["analysis"].get("extracted_text", ""),
-                        "is_handwritten": document["analysis"].get("is_handwritten", False),
-                        "key_observations": document["analysis"].get("key_observations", []),
-                        "confidence": document["analysis"].get("confidence", 0.0),
-                        "media_url": (document.get("media") or {}).get("url"),
-                    }
-                )
+            if document:
+                analysis = document.get("analysis")
+                if not analysis and on_demand_used < _VISION_ON_DEMAND_MAX:
+                    events.emit(
+                        {"type": "node", "node": "vision", "detail": "analyzing image now"}
+                    )
+                    analysis = await _analyze_image_on_demand(
+                        db, "documents", document["_id"],
+                        document.get("media") or {}, document["filename"],
+                    )
+                    if analysis:
+                        on_demand_used += 1
+                if analysis:
+                    results.append(
+                        {
+                            "source_name": document["filename"],
+                            "description": analysis.get("description", ""),
+                            "extracted_text": analysis.get("extracted_text", ""),
+                            "is_handwritten": analysis.get("is_handwritten", False),
+                            "key_observations": analysis.get("key_observations", []),
+                            "confidence": analysis.get("confidence", 0.0),
+                            "media_url": (document.get("media") or {}).get("url"),
+                        }
+                    )
     events.emit(
         {"type": "node", "node": "vision", "detail": f"{len(results)} image(s) analyzed"}
     )

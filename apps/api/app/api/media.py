@@ -77,6 +77,7 @@ async def upload_media(
         "url": stored.url,
         "public_id": stored.public_id,
         "storage_mode": stored.mode,
+        "bytes_path": stored.bytes_path,
         "transcript": transcript,
         "analysis": analysis,
         "size_bytes": len(data),
@@ -129,6 +130,7 @@ async def delete_media(
                 url=media.get("url", ""),
                 resource_type=media.get("kind", "file"),
                 mode=media.get("storage_mode", "local"),
+                bytes_path=media.get("bytes_path"),
             )
             await svc.delete(asset)
         except Exception:

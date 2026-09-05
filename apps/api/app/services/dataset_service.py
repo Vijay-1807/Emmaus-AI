@@ -93,6 +93,7 @@ async def create_dataset(
             "public_id": stored.public_id,
             "mode": stored.mode,
             "resource_type": stored.resource_type,
+            "bytes_path": stored.bytes_path,
         },
         "created_at": now(),
     }

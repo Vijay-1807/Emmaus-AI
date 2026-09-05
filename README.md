@@ -103,12 +103,12 @@ Fallback order: **Groq → Ollama → Mock**. Cerebras is disabled legacy config
 
 | Task | Primary | 2nd | 3rd | Model |
 |------|---------|-----|-----|-------|
-| Reasoning | Groq | Ollama | Mock | openai/gpt-oss-120b |
-| Classification | Groq | Ollama | Mock | openai/gpt-oss-20b |
-| Query Rewrite | Groq | Ollama | Mock | openai/gpt-oss-20b |
-| Reranking | Groq | Ollama | Mock | openai/gpt-oss-20b |
-| Verification | Groq | Ollama | Mock | openai/gpt-oss-20b |
-| Vision | Groq (qwen3.6-27b) | Ollama (gemma4:31b) | Mock | qwen/qwen3.6-27b |
+| Reasoning | Groq | Ollama | Mock | openai/gpt-oss-120b (reasoning) |
+| Classification | Ollama | Groq | Mock | gpt-oss:120b → openai/gpt-oss-20b |
+| Query Rewrite | Ollama | Groq | Mock | gpt-oss:120b → openai/gpt-oss-20b |
+| Reranking | Ollama | Groq | Mock | gpt-oss:120b → openai/gpt-oss-20b |
+| Verification | Ollama | Groq | Mock | gpt-oss:120b → openai/gpt-oss-20b |
+| Vision | Ollama (gemma4:31b) | Groq (qwen3.6-27b) | Mock | gemma4:31b → qwen/qwen3.6-27b |
 | Embedding | Jina | Local/Mock fallback | — | jina-embeddings-v5-omni-small (1024D) |
 | Speech-to-Text | Deepgram | Sarvam | Groq | nova-3 / saaras:v4 / whisper-large-v3-turbo |
 
@@ -134,8 +134,8 @@ Question
   ├── RRF Fusion (k=60)
   │     └── Reciprocal Rank Fusion of both result sets
   │
-  ├── LLM Reranking
-  │     └── Groq fast model scores relevance 0-10
+   ├── LLM Reranking
+   │     └── Fast model (Ollama primary) scores relevance 0-10
   │
   └── Top-K Selection (default: 6)
 ```

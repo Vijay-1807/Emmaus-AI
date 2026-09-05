@@ -52,23 +52,27 @@ class TelegramApiError(RuntimeError):
 
 WELCOME_TEXT = (
     "👋 *Welcome to Emmaus AI*\n\n"
-    "Send me text, documents, photos, handwriting or voice notes and I will "
-    "investigate them with the full multimodal pipeline.\n\n"
-    "Commands:\n"
-    "/new — start a fresh chat\n"
-    "/history — recent investigations\n"
-    "/status — your workspace stats\n"
-    "/help — this help"
+    "Send me text, documents, datasets, photos, handwriting, or voice notes "
+    "and I will investigate with the full multimodal pipeline.\n\n"
+    "*How to use:*\n"
+    "• Just ask — I search your docs, tables, images, and transcripts.\n"
+    "• Attach a file or photo with a caption: \"Summarize this\"\n"
+    "• Voice: hold the mic and speak your question.\n\n"
+    "*Commands:* /new  /history  /status  /help"
 )
 
 HELP_TEXT = (
-    "📖 *Emmaus AI help*\n\n"
-    "Send any question — I search your documents, datasets, images and audio.\n"
-    "Attach a file, photo or voice note with a caption to analyze it.\n"
-    "/new — fresh chat (forgets previous context)\n"
-    "/history — your recent investigations\n"
-    "/status — documents, datasets and usage\n"
-    "Answers arrive with a *Sources* button for citations."
+    "📖 *Emmaus AI — Help*\n\n"
+    "*Ask:*\n"
+    "• Type any question about your sources.\n"
+    "• Attach a doc (PDF/DOCX/TXT/MD), dataset (CSV/XLSX/XLS), photo, or voice note — with or without a caption.\n\n"
+    "*Commands:*\n"
+    "• /new — fresh chat (clears memory)\n"
+    "• /history — last 5 investigations\n"
+    "• /status — your docs / datasets / media / chats\n"
+    "• /help — this help\n\n"
+    "*Tips:* Add a caption to attachments (\"What are the skills on page 2?\"). "
+    "After an answer, tap *📄 Sources* to see citations, *💬 New chat* to reset."
 )
 
 
@@ -143,19 +147,40 @@ async def process_claimed_update(update_id: int, update: dict) -> None:
         )
 
 
+def _chunk_message(text: str, limit: int = MAX_MESSAGE) -> list[str]:
+    """Split on paragraph boundaries so markdown/code/citations stay intact."""
+    if len(text) <= limit:
+        return [text]
+    parts: list[str] = []
+    for block in text.split("\n\n"):
+        if len(block) + 2 <= limit and parts and len(parts[-1]) + 2 + len(block) <= limit:
+            parts[-1] = f"{parts[-1]}\n\n{block}"
+        elif len(block) <= limit:
+            parts.append(block)
+        else:
+            for line in block.split("\n"):
+                if len(line) <= limit:
+                    if parts and len(parts[-1]) + 1 + len(line) <= limit:
+                        parts[-1] = f"{parts[-1]}\n{line}"
+                    else:
+                        parts.append(line)
+                else:
+                    for i in range(0, len(line), limit):
+                        parts.append(line[i : i + limit])
+    return parts
+
+
 async def send_message(
     chat_id: int, text: str, reply_markup: dict | None = None
 ) -> None:
-    for start in range(0, len(text), MAX_MESSAGE):
-        chunk = text[start : start + MAX_MESSAGE]
+    for chunk in _chunk_message(text):
         payload: dict = {"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"}
-        if reply_markup is not None and start + MAX_MESSAGE >= len(text):
+        if reply_markup is not None and chunk == _chunk_message(text)[-1]:
+            # Only the last chunk carries buttons (stays Markdown-typed).
             payload["reply_markup"] = reply_markup
         try:
             await telegram_request("sendMessage", payload)
         except TelegramApiError as exc:
-            # Markdown parse errors are deterministic; transport/API errors
-            # must not be blindly resent because Telegram may have accepted it.
             if exc.error_code not in (400,):
                 raise
             payload.pop("parse_mode", None)
@@ -188,6 +213,17 @@ def answer_keyboard(investigation_id: str | None = None) -> dict:
         )
     buttons.append({"text": "💬 New chat", "callback_data": "newchat"})
     return {"inline_keyboard": [buttons]}
+
+
+def persistent_keyboard() -> dict:
+    """Bottom reply-keyboard so commands are always one tap away (not a slash)."""
+    return {
+        "keyboard": [
+            [{"text": "/status"}, {"text": "/history"}, {"text": "/new"}, {"text": "/help"}]
+        ],
+        "resize_keyboard": True,
+        "is_persistent": True,
+    }
 
 
 async def check_rate_limit(link: dict) -> str | None:
@@ -429,7 +465,7 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
     cmd = command.split()[0].split("@")[0]
 
     if cmd == "/start":
-        await send_message(chat_id, WELCOME_TEXT)
+        await send_message(chat_id, WELCOME_TEXT, reply_markup=persistent_keyboard())
         return True
     if cmd == "/help":
         await send_message(chat_id, HELP_TEXT)

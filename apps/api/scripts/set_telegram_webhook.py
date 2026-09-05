@@ -14,8 +14,8 @@ import httpx
 from app.core.config import get_settings
 
 COMMANDS = [
-    {"command": "start", "description": "Welcome + auto-create your workspace"},
-    {"command": "help", "description": "How to use the bot"},
+    {"command": "start", "description": "Welcome + create your workspace"},
+    {"command": "help", "description": "How to use Emmaus AI"},
     {"command": "new", "description": "Start a fresh chat"},
     {"command": "history", "description": "Recent investigations"},
     {"command": "status", "description": "Workspace stats"},

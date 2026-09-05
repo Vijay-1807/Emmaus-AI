@@ -216,8 +216,8 @@ Fallback order: Groq → Ollama → Mock
 | Task | Primary | 2nd | 3rd | Model |
 |------|---------|-----|-----|-------|
 | Reasoning (RAG, answers) | Groq | Ollama | Mock | openai/gpt-oss-120b |
-| Vision (images, charts) | Groq (qwen3.6-27b) | Ollama (gemma4:31b) | Mock | qwen/qwen3.6-27b |
-| Fast tasks (classify, rewrite, rerank) | Groq | Ollama | Mock | openai/gpt-oss-20b |
+| Vision (images, charts) | Ollama (gemma4:31b) | Groq (qwen3.6-27b) | Mock | gemma4:31b → qwen/qwen3.6-27b |
+| Fast tasks (classify, rewrite, rerank) | Ollama (gpt-oss:120b) | Groq | Mock | gpt-oss:120b → openai/gpt-oss-20b |
 | Speech-to-Text | Deepgram | Sarvam | Groq | nova-3 / saaras:v4 / whisper |
 | Embeddings | Jina | Local/Mock | — | jina-embeddings-v5-omni-small (1024D) |
 

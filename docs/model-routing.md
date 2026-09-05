@@ -5,13 +5,13 @@
 | TaskType | Purpose | Primary Provider | Fallback Chain |
 |----------|---------|-----------------|----------------|
 | REASONING | Final answer generation | Groq (openai/gpt-oss-120b) | Ollama → Mock |
-| CLASSIFY | Intent routing | Groq (openai/gpt-oss-20b) | Ollama → Mock |
-| REWRITE | Query rewriting | Groq (openai/gpt-oss-20b) | Ollama → Mock |
-| RERANK | Relevance scoring | Groq (openai/gpt-oss-20b) | Ollama → Mock |
-| VERIFY | Evidence sufficiency | Groq (openai/gpt-oss-20b) | Ollama → Mock |
-| VISION | Image analysis | Groq (qwen/qwen3.6-27b) | Ollama (gemma4:31b) → Mock |
-| EXTRACTION | Structured output | Groq (openai/gpt-oss-20b) | Ollama → Mock |
-| EVALUATION | Answer grading | Groq (openai/gpt-oss-20b) | Ollama → Mock |
+| CLASSIFY | Intent routing | Ollama (gpt-oss:120b) | Groq (openai/gpt-oss-20b) → Mock |
+| REWRITE | Query rewriting | Ollama (gpt-oss:120b) | Groq (openai/gpt-oss-20b) → Mock |
+| RERANK | Relevance scoring | Ollama (gpt-oss:120b) | Groq (openai/gpt-oss-20b) → Mock |
+| VERIFY | Evidence sufficiency | Ollama (gpt-oss:120b) | Groq (openai/gpt-oss-20b) → Mock |
+| VISION | Image analysis | Ollama (gemma4:31b) | Groq (qwen/qwen3.6-27b) → Mock |
+| EXTRACTION | Structured output | Ollama (gpt-oss:120b) | Groq (openai/gpt-oss-20b) → Mock |
+| EVALUATION | Answer grading | Ollama (gpt-oss:120b) | Groq (openai/gpt-oss-20b) → Mock |
 
 ## Fallback Behavior
 
@@ -34,8 +34,9 @@ In production, if all real providers fail, the system degrades to mock responses
 
 ## Retry Logic
 
-- 3 attempts per provider
-- Exponential backoff: 0.8s, 1.6s, 3.2s
+- 3 attempts per provider (then falls through to next provider in chain)
+- Exponential backoff: 0.8s, 1.6s, 3.2s + Retry-After header honoring
+- Per-provider concurrency semaphore (default 3, `PROVIDER_MAX_CONCURRENCY`)
 - Timeout: provider-specific (default 60s)
 
 ## Observability

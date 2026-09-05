@@ -138,7 +138,23 @@ class TestProviderFallback:
         router = ModelRouter(providers, settings)
         chain = router._chain(TaskType.VISION)
         assert [model for _, model in chain] == [
-            "qwen/qwen3.6-27b", "gemma4:31b", "mock-vision"
+            "gemma4:31b", "qwen/qwen3.6-27b", "mock-vision"
+        ]
+
+    def test_fast_chain_prefers_ollama_with_groq_fallback(self):
+        settings = MagicMock()
+        settings.groq_fast_model = "openai/gpt-oss-20b"
+        settings.ollama_chat_model = "gpt-oss:120b"
+
+        providers = {
+            "groq": MockProvider(),
+            "ollama": MockProvider(),
+            "mock": MockProvider(),
+        }
+        router = ModelRouter(providers, settings)
+        chain = router._chain(TaskType.CLASSIFY)
+        assert [model for _, model in chain] == [
+            "gpt-oss:120b", "openai/gpt-oss-20b", "mock-fast"
         ]
 
 

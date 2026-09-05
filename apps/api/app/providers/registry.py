@@ -61,22 +61,23 @@ class ModelRouter:
         chain: list[tuple[LLMProvider, str]] = []
 
         if task == TaskType.VISION:
-            # Groq's scout model is OpenAI-compatible and reliable for image_url
-            # payloads; Ollama Cloud stays as fallback, then mock.
-            if "groq" in self.providers:
-                chain.append((self.providers["groq"], s.groq_vision_model))
+            # Per user direction: Gemma (Ollama) primary, Groq Qwen fallback.
+            # Each provider is given 3 attempts (with_retries) before falling through.
             if "ollama" in self.providers:
                 chain.append((self.providers["ollama"], s.ollama_vision_model))
+            if "groq" in self.providers:
+                chain.append((self.providers["groq"], s.groq_vision_model))
             if "mock" in self.providers:
                 chain.append((self.providers["mock"], "mock-vision"))
             return chain
 
         if task in (TaskType.CLASSIFY, TaskType.REWRITE, TaskType.RERANK, TaskType.VERIFY,
                     TaskType.EXTRACTION, TaskType.EVALUATION):
-            if "groq" in self.providers:
-                chain.append((self.providers["groq"], s.groq_fast_model))
+            # Fast path is Ollama-first to spare Groq TPM. 3 attempts per provider.
             if "ollama" in self.providers:
                 chain.append((self.providers["ollama"], s.ollama_chat_model))
+            if "groq" in self.providers:
+                chain.append((self.providers["groq"], s.groq_fast_model))
             if "mock" in self.providers:
                 chain.append((self.providers["mock"], "mock-fast"))
             return chain

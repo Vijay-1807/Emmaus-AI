@@ -14,7 +14,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        value: https://*.vercel.app,http://localhost:3000
+        value: https://emmaus-ai.vercel.app,http://localhost:3000,http://127.0.0.1:3000
       - key: OLLAMA_API_KEY
         sync: false
       - key: OLLAMA_BASE_URL

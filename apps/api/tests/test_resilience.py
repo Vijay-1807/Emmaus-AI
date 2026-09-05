@@ -465,6 +465,30 @@ class TestCostEstimation:
         assert cost == 0.0
 
 
+@pytest.mark.asyncio
+async def test_cloudinary_delete_uses_uploader_destroy(monkeypatch):
+    from app.services.media_service import MediaService, StoredAsset
+
+    service = MediaService()
+    service.mode = "cloudinary"
+    service._configure_cloudinary = lambda: None
+    calls = []
+
+    import cloudinary.uploader
+
+    def fake_destroy(public_id, resource_type):
+        calls.append((public_id, resource_type))
+        return {"result": "ok"}
+
+    monkeypatch.setattr(cloudinary.uploader, "destroy", fake_destroy)
+    await service.delete(
+        StoredAsset(
+            public_id="emmaus/test", url="https://example.com", resource_type="image", mode="cloudinary"
+        )
+    )
+    assert calls == [("emmaus/test", "image")]
+
+
 # ── JSON Extraction Resilience ───────────────────────────────────────
 
 

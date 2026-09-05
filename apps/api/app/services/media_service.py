@@ -136,7 +136,7 @@ class MediaService:
                 data,
                 public_id=public_id,
                 resource_type=resource_type,
-                folder="vedax",
+                folder="emmaus",
                 use_filename=False,
                 unique_filename=False,
             )
@@ -173,11 +173,13 @@ class MediaService:
 
     async def delete(self, asset: StoredAsset) -> None:
         if asset.mode == "cloudinary":
-            import cloudinary.api
+            import cloudinary.uploader
 
             self._configure_cloudinary()
             await asyncio.to_thread(
-                cloudinary.api.delete_asset, asset.public_id, resource_type=asset.resource_type
+                cloudinary.uploader.destroy,
+                asset.public_id,
+                resource_type=asset.resource_type,
             )
         elif asset.bytes_path:
             path = Path(asset.bytes_path)

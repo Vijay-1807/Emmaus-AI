@@ -40,23 +40,22 @@ export default function DocumentsPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadDocs = useCallback(async () => {
-    if (!wsId) { setLoading(false); return; }
     setLoading(true);
     try {
-      const data = await apiFetch<Document[]>(`/api/documents?workspace_id=${wsId}`);
-      setDocs(data);
-    } catch (cause) {
-      if (isNotFoundError(cause)) {
-        // Stale id (workspace deleted elsewhere) — clear and fall back to empty state.
-        clearStoredWorkspaceIdIf(wsId);
-        setWsId("");
-        setDocs([]);
-      } else {
-        setError(cause instanceof Error ? cause.message : "Unable to load documents.");
+      const workspaces = await apiFetch<import("@/lib/types").Workspace[]>("/api/workspaces");
+      const allDocs: Document[] = [];
+      for (const ws of workspaces) {
+        try {
+          const data = await apiFetch<Document[]>(`/api/documents?workspace_id=${ws.id}`);
+          allDocs.push(...data);
+        } catch { /* skip */ }
       }
+      setDocs(allDocs);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load documents.");
     }
     setLoading(false);
-  }, [wsId, setWsId]);
+  }, []);
 
   useEffect(() => { loadDocs(); }, [loadDocs]);
 

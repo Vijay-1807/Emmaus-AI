@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowUp, Camera, Trash2, AlertTriangle, Paperclip, Mic, Sparkles } from "lucide-react";
+import { ArrowUp, Camera, Trash2, AlertTriangle, Paperclip, Mic, Sparkles, X } from "lucide-react";
 import type { UploadProgressValue } from "@/components/ui/upload-progress";
 import ReactMarkdown from "react-markdown";
 import { GradientBackground } from "@/components/ui/pipo";
@@ -828,13 +828,14 @@ export default function WorkspacePage() {
       )}
 
       {showImageGenerator && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-lg h-[80vh] rounded-2xl border border-black/[.08] bg-[#fffdfa] shadow-2xl overflow-hidden">
-            <ImageGenerator
-              workspaceId={wsId}
-              onClose={() => setShowImageGenerator(false)}
-            />
+        <div className="border-t border-black/[.06] bg-white/40 px-3 py-3 backdrop-blur-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-[#655f59]">Image Generation</span>
+            <button onClick={() => setShowImageGenerator(false)} className="rounded p-0.5 text-[#8d8780] hover:bg-black/[.05]">
+              <X size={12} />
+            </button>
           </div>
+          <ImageGenerator workspaceId={wsId} />
         </div>
       )}
 

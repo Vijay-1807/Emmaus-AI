@@ -64,17 +64,26 @@ export async function listLibrarySources(): Promise<LibrarySource[]> {
     await ensureAnonymousSession();
     const workspaces = await apiFetch<Workspace[]>("/api/workspaces");
     const sources: LibrarySource[] = [];
+    const seen = new Set<string>();
     for (const ws of workspaces) {
       const [docs, datasets] = await Promise.all([
         apiFetch<Document[]>(`/api/documents?workspace_id=${ws.id}`).catch(() => [] as Document[]),
         apiFetch<Dataset[]>(`/api/datasets?workspace_id=${ws.id}`).catch(() => [] as Dataset[]),
       ]);
-      docs.forEach((d) =>
-        sources.push({ id: d.id, filename: d.filename, source_type: d.source_type, workspace_id: ws.id })
-      );
-      datasets.forEach((d) =>
-        sources.push({ id: d.id, filename: d.filename, source_type: "dataset", workspace_id: ws.id })
-      );
+      docs.forEach((d) => {
+        const key = `${d.filename}:document`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          sources.push({ id: d.id, filename: d.filename, source_type: d.source_type, workspace_id: ws.id });
+        }
+      });
+      datasets.forEach((d) => {
+        const key = `${d.filename}:dataset`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          sources.push({ id: d.id, filename: d.filename, source_type: "dataset", workspace_id: ws.id });
+        }
+      });
     }
     return sources;
   } catch {

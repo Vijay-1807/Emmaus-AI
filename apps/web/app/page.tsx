@@ -7,12 +7,14 @@ import {
   Camera,
   FileText,
   Mic,
+  Sparkles,
   X,
 } from "lucide-react";
 import { GradientBackground } from "@/components/ui/pipo";
 import Navbar from "@/components/Navbar";
 import CameraCapture from "@/components/CameraCapture";
 import VoiceRecordModal from "@/components/VoiceRecordModal";
+import ImageGenerator from "@/components/ImageGenerator";
 import AttachmentChips, { chipKey } from "@/components/AttachmentChips";
 import SiteFooter from "@/components/SiteFooter";
 import type { UploadProgressValue } from "@/components/ui/upload-progress";
@@ -39,6 +41,7 @@ export default function HomePage() {
   const [showAllWs, setShowAllWs] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [showVoice, setShowVoice] = useState(false);
+  const [showImageGen, setShowImageGen] = useState(false);
   const filesRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -410,11 +413,24 @@ export default function HomePage() {
               </p>
             )}
 
+            {showImageGen && (draftId || workspaces[0]?.id) && (
+              <div className="border-t border-black/[.06] pt-2 mt-1">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-medium text-[#8d8780] uppercase tracking-wider">Image Generation</span>
+                  <button onClick={() => setShowImageGen(false)} className="rounded p-0.5 text-[#8d8780] hover:bg-black/[.05]">
+                    <X size={10} />
+                  </button>
+                </div>
+                <ImageGenerator workspaceId={draftId || workspaces[0].id} />
+              </div>
+            )}
+
             <div className="flex items-center justify-between border-t border-black/[.06] pt-1.5">
               <div className="flex items-center gap-0.5">
                 <ToolBtn icon={<FileText size={14} />} label="Upload" onClick={() => filesRef.current?.click()} />
                 <ToolBtn icon={<Camera size={14} />} label="Camera" onClick={() => setShowCamera(true)} />
                 <ToolBtn icon={<Mic size={14} />} label="Voice" onClick={() => setShowVoice(true)} />
+                <ToolBtn icon={<Sparkles size={14} />} label="Image Gen" onClick={() => setShowImageGen((v) => !v)} />
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="hidden text-[10px] text-[#8d8780] sm:block">Groq &middot; 120B</span>

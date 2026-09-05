@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { Sparkles, Download, RefreshCw, Loader2, X } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Sparkles, Download, RefreshCw, Loader2, X, ZoomIn } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 interface ImageGeneratorProps {
   workspaceId: string;
-  onClose?: () => void;
+  onImageGenerated?: (imageUrl: string) => void;
 }
 
 interface GeneratedImage {
@@ -15,56 +15,42 @@ interface GeneratedImage {
   metadata?: Record<string, unknown>;
 }
 
-export default function ImageGenerator({ workspaceId, onClose }: ImageGeneratorProps) {
+export default function ImageGenerator({ workspaceId, onImageGenerated }: ImageGeneratorProps) {
   const [prompt, setPrompt] = useState("");
   const [steps, setSteps] = useState(4);
-  const [seed, setSeed] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedImage, setGeneratedImage] = useState<GeneratedImage | null>(null);
   const [history, setHistory] = useState<GeneratedImage[]>([]);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!lightboxImage) {
+      setZoom(1);
+      setPos({ x: 0, y: 0 });
+    }
+  }, [lightboxImage]);
 
   async function handleGenerate() {
     if (!prompt.trim() || loading) return;
-
     setLoading(true);
     setError(null);
     setGeneratedImage(null);
-
     try {
-      const payload: Record<string, unknown> = {
-        prompt: prompt.trim(),
-        steps,
-      };
-
-      if (seed.trim()) {
-        const seedNum = parseInt(seed.trim(), 10);
-        if (!isNaN(seedNum)) {
-          payload.seed = seedNum;
-        }
-      }
-
+      const payload: Record<string, unknown> = { prompt: prompt.trim(), steps };
       const result = await apiFetch<{ success: boolean; image: string; mime: string; error?: string; metadata?: Record<string, unknown> }>(
         `/api/image/generate?workspace_id=${workspaceId}`,
-        {
-          method: "POST",
-          body: JSON.stringify(payload),
-        }
+        { method: "POST", body: JSON.stringify(payload) }
       );
-
-      if (!result.success || !result.image) {
-        throw new Error(result.error || "Failed to generate image");
-      }
-
-      const newImage: GeneratedImage = {
-        url: result.image,
-        mime: result.mime,
-        metadata: result.metadata,
-      };
-
+      if (!result.success || !result.image) throw new Error(result.error || "Failed to generate image");
+      const newImage: GeneratedImage = { url: result.image, mime: result.mime, metadata: result.metadata };
       setGeneratedImage(newImage);
       setHistory((prev) => [newImage, ...prev].slice(0, 10));
+      onImageGenerated?.(result.image);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Image generation failed");
     } finally {
@@ -72,20 +58,13 @@ export default function ImageGenerator({ workspaceId, onClose }: ImageGeneratorP
     }
   }
 
-  function handleDownload() {
-    if (!generatedImage) return;
-
+  function handleDownload(img: GeneratedImage) {
     const link = document.createElement("a");
-    link.href = generatedImage.url;
+    link.href = img.url;
     link.download = `emmaus-generated-${Date.now()}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }
-
-  function handleRegenerate() {
-    setSeed(Math.floor(Math.random() * 999999).toString());
-    handleGenerate();
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -95,162 +74,179 @@ export default function ImageGenerator({ workspaceId, onClose }: ImageGeneratorP
     }
   }
 
+  function handleWheel(e: React.WheelEvent) {
+    e.preventDefault();
+    setZoom((z) => Math.min(5, Math.max(0.5, z + (e.deltaY > 0 ? -0.15 : 0.15))));
+  }
+
+  function handleMouseDown(e: React.MouseEvent) {
+    if (zoom <= 1) return;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startPosX: pos.x, startPosY: pos.y };
+  }
+
+  function handleMouseMove(e: React.MouseEvent) {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    setPos({ x: dragRef.current.startPosX + dx, y: dragRef.current.startPosY + dy });
+  }
+
+  function handleMouseUp() {
+    dragRef.current = null;
+  }
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-black/[.08] px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Sparkles size={18} className="text-indigo-500" />
-          <h3 className="text-sm font-semibold text-[#1c1917]">Image Generation</h3>
-          <span className="text-xs text-[#78716c]">FLUX.1 Schnell</span>
-        </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="p-1 rounded-md hover:bg-black/[.05] transition"
-            aria-label="Close"
-          >
-            <X size={16} className="text-[#78716c]" />
-          </button>
-        )}
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-auto p-4 space-y-4">
-        {/* Prompt Input */}
-        <div>
-          <label className="block text-xs font-medium text-[#78716c] mb-1.5">
-            Prompt
-          </label>
-          <textarea
-            ref={inputRef}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="A cinematic futuristic city at sunset..."
-            className="w-full h-24 px-3 py-2 text-sm rounded-xl border border-black/[.08] bg-white/80 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/40 resize-none placeholder:text-[#a8a29e]"
+    <div className="w-full space-y-3">
+      {/* Inline prompt input — compact */}
+      <div className="relative">
+        <textarea
+          ref={inputRef}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Describe an image to generate..."
+          rows={2}
+          className="w-full resize-none rounded-xl border border-black/[.08] bg-white/60 px-3 py-2.5 text-sm leading-5 outline-none backdrop-blur-sm placeholder:text-[#a8a29e] focus:border-[#b8a08a]/40 focus:ring-2 focus:ring-[#b8a08a]/20"
+          disabled={loading}
+        />
+        <div className="mt-1.5 flex items-center gap-2">
+          <select
+            value={steps}
+            onChange={(e) => setSteps(Number(e.target.value))}
+            className="rounded-lg border border-black/[.06] bg-white/60 px-2 py-1 text-[11px] text-[#655f59] backdrop-blur focus:outline-none"
             disabled={loading}
-          />
-          <p className="mt-1 text-xs text-[#a8a29e]">
-            {prompt.length}/2048 characters
-          </p>
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+              <option key={s} value={s}>{s} step{s !== 1 ? "s" : ""}</option>
+            ))}
+          </select>
+          <span className="text-[10px] text-[#a8a29e]">{prompt.length}/2048</span>
         </div>
-
-        {/* Parameters */}
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <label className="block text-xs font-medium text-[#78716c] mb-1.5">
-              Steps (1-8)
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={8}
-              value={steps}
-              onChange={(e) => setSteps(Math.max(1, Math.min(8, parseInt(e.target.value) || 4)))}
-              className="w-full px-3 py-2 text-sm rounded-xl border border-black/[.08] bg-white/80 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/40"
-              disabled={loading}
-            />
-          </div>
-          <div className="flex-1">
-            <label className="block text-xs font-medium text-[#78716c] mb-1.5">
-              Seed (optional)
-            </label>
-            <input
-              type="text"
-              value={seed}
-              onChange={(e) => setSeed(e.target.value)}
-              placeholder="Random"
-              className="w-full px-3 py-2 text-sm rounded-xl border border-black/[.08] bg-white/80 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500/40 placeholder:text-[#a8a29e]"
-              disabled={loading}
-            />
-          </div>
-        </div>
-
-        {/* Generate Button */}
-        <button
-          onClick={handleGenerate}
-          disabled={!prompt.trim() || loading}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loading ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <Sparkles size={16} />
-              Generate Image
-            </>
-          )}
-        </button>
-
-        {/* Error */}
-        {error && (
-          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
-            {error}
-          </div>
-        )}
-
-        {/* Generated Image */}
-        {generatedImage && (
-          <div className="space-y-3">
-            <div className="relative rounded-xl overflow-hidden border border-black/[.08] bg-white/80">
-              <img
-                src={generatedImage.url}
-                alt={prompt}
-                className="w-full h-auto object-contain max-h-96"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleDownload}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-black/[.08] bg-white/80 text-sm font-medium hover:bg-black/[.03] transition"
-              >
-                <Download size={14} />
-                Download
-              </button>
-              <button
-                onClick={handleRegenerate}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-black/[.08] bg-white/80 text-sm font-medium hover:bg-black/[.03] transition"
-              >
-                <RefreshCw size={14} />
-                Regenerate
-              </button>
-            </div>
-            {generatedImage.metadata && (
-              <div className="text-xs text-[#a8a29e] text-center">
-                Model: {String(generatedImage.metadata.model || "FLUX.1")} | 
-                Steps: {String(generatedImage.metadata.steps || steps)}
-                {generatedImage.metadata.seed ? ` | Seed: ${String(generatedImage.metadata.seed)}` : ""}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* History */}
-        {history.length > 1 && (
-          <div>
-            <h4 className="text-xs font-medium text-[#78716c] mb-2">Recent Generations</h4>
-            <div className="flex gap-2 overflow-x-auto pb-2">
-              {history.slice(1, 6).map((img, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setGeneratedImage(img)}
-                  className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-black/[.08] hover:border-indigo-500/40 transition"
-                >
-                  <img
-                    src={img.url}
-                    alt={`Generated ${idx + 1}`}
-                    className="w-full h-full object-cover"
-                  />
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="rounded-xl border border-red-200/60 bg-red-50/80 px-3 py-2 text-xs text-red-700 backdrop-blur">
+          {error}
+        </div>
+      )}
+
+      {/* Generate button */}
+      <button
+        onClick={handleGenerate}
+        disabled={!prompt.trim() || loading}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#282521] px-4 py-2.5 text-sm font-medium text-white shadow-md transition hover:-translate-y-0.5 hover:bg-black disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {loading ? (
+          <><Loader2 size={14} className="animate-spin" /> Generating...</>
+        ) : (
+          <><Sparkles size={14} /> Generate</>
+        )}
+      </button>
+
+      {/* Generated image preview */}
+      {generatedImage && (
+        <div className="space-y-2">
+          <div
+            className="group relative cursor-zoom-in overflow-hidden rounded-xl border border-black/[.08] bg-white/60"
+            onClick={() => setLightboxImage(generatedImage.url)}
+          >
+            <img src={generatedImage.url} alt={prompt} className="w-full object-contain" style={{ maxHeight: 320 }} />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/10">
+              <ZoomIn size={20} className="text-white opacity-0 drop-shadow transition group-hover:opacity-80" />
+            </div>
+          </div>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => handleDownload(generatedImage)}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-black/[.06] bg-white/60 px-2 py-1.5 text-[11px] font-medium text-[#655f59] backdrop-blur transition hover:bg-white/80"
+            >
+              <Download size={12} /> Download
+            </button>
+            <button
+              onClick={() => { setGeneratedImage(null); handleGenerate(); }}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-black/[.06] bg-white/60 px-2 py-1.5 text-[11px] font-medium text-[#655f59] backdrop-blur transition hover:bg-white/80"
+            >
+              <RefreshCw size={12} /> Regenerate
+            </button>
+          </div>
+          {generatedImage.metadata && (
+            <p className="text-center text-[10px] text-[#a8a29e]">
+              FLUX.1 &middot; {String(generatedImage.metadata.steps || steps)} steps
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* History thumbnails */}
+      {history.length > 1 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-1">
+          {history.slice(1, 5).map((img, idx) => (
+            <button
+              key={idx}
+              onClick={() => setGeneratedImage(img)}
+              className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg border border-black/[.06] transition hover:border-[#b8a08a]/40"
+            >
+              <img src={img.url} alt={`Generated ${idx + 1}`} className="h-full w-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Lightbox with zoom */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setLightboxImage(null)}
+          onWheel={handleWheel}
+        >
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.min(5, z + 0.3)); }}
+              className="grid h-8 w-8 place-items-center rounded-full bg-white/20 text-white backdrop-blur transition hover:bg-white/30"
+            >
+              +
+            </button>
+            <span className="min-w-[40px] text-center text-xs text-white/70">{Math.round(zoom * 100)}%</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setZoom((z) => Math.max(0.5, z - 0.3)); }}
+              className="grid h-8 w-8 place-items-center rounded-full bg-white/20 text-white backdrop-blur transition hover:bg-white/30"
+            >
+              -
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDownload({ url: lightboxImage, mime: "image/png" }); }}
+              className="grid h-8 w-8 place-items-center rounded-full bg-white/20 text-white backdrop-blur transition hover:bg-white/30"
+            >
+              <Download size={14} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setLightboxImage(null); }}
+              className="grid h-8 w-8 place-items-center rounded-full bg-white/20 text-white backdrop-blur transition hover:bg-white/30"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div
+            className="flex items-center justify-center"
+            style={{ cursor: zoom > 1 ? "grab" : "zoom-in" }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+          >
+            <img
+              src={lightboxImage}
+              alt="Generated"
+              className="max-h-[85vh] max-w-[90vw] select-none rounded-lg object-contain shadow-2xl transition-transform"
+              style={{ transform: `scale(${zoom}) translate(${pos.x / zoom}px, ${pos.y / zoom}px)` }}
+              draggable={false}
+            />
+          </div>
+          <p className="absolute bottom-4 text-xs text-white/50">Scroll to zoom &middot; Drag to pan &middot; Click outside to close</p>
+        </div>
+      )}
     </div>
   );
 }

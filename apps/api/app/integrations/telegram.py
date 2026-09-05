@@ -710,6 +710,33 @@ async def handle_callback(update: dict) -> None:
         )
 
 
+async def _collect_investigation(
+    workspace_id: str,
+    user_id: str,
+    question: str,
+    conversation_id: str | None,
+    attachment_ids: list[str],
+    audio_media_id: str | None,
+) -> dict:
+    """Collect all events from run_investigation into a single result dict."""
+    result: dict = {"answer": "", "id": None, "conversation_id": conversation_id}
+    async for event in run_investigation(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        question=question,
+        conversation_id=conversation_id,
+        attachment_ids=attachment_ids,
+        audio_media_id=audio_media_id,
+    ):
+        if event["type"] == "done":
+            result["answer"] = event["investigation"]["answer"]
+            result["id"] = event["investigation"].get("id")
+            result["conversation_id"] = event["investigation"]["conversation_id"]
+        elif event["type"] == "error":
+            result["answer"] = event["message"]
+    return result
+
+
 async def handle_update(update: dict) -> None:
     if update.get("callback_query"):
         await handle_callback(update)
@@ -740,8 +767,18 @@ async def handle_update(update: dict) -> None:
 
     lock_token = await claim_chat_lock(link["_id"])
     if not lock_token:
-        await send_message(chat_id, "⏳ Still working on your previous question — one moment…")
-        return
+        # Force-clear stale locks older than 5 minutes so user isn't stuck forever
+        stale = await db.telegram_links.find_one({
+            "_id": link["_id"],
+            "locked": True,
+            "lock_expires_at": {"$lt": now()},
+        })
+        if stale:
+            await release_chat_lock(link["_id"], stale.get("lock_token", ""))
+            lock_token = await claim_chat_lock(link["_id"])
+        if not lock_token:
+            await send_message(chat_id, "⏳ Still working on your previous question — try again in ~30s.")
+            return
     await send_action(chat_id, "typing")
     try:
         text, attachment_ids, audio_media_id = await extract_question(
@@ -770,26 +807,40 @@ async def handle_update(update: dict) -> None:
     start_time = now()
     try:
         conversation_id = link.get("conversation_id")
-        async for event in run_investigation(
+        # 5-minute hard timeout prevents infinite hangs
+        investigation_task = asyncio.create_task(_collect_investigation(
             workspace_id=workspace_id,
             user_id=link["user_id"],
             question=text,
             conversation_id=conversation_id,
             attachment_ids=attachment_ids,
             audio_media_id=audio_media_id,
-        ):
-            if event["type"] == "done":
-                final_answer = event["investigation"]["answer"]
-                investigation_id = event["investigation"].get("id")
-                new_conversation = event["investigation"]["conversation_id"]
+        ))
+        try:
+            result = await asyncio.wait_for(investigation_task, timeout=300)
+            final_answer = result.get("answer", "")
+            investigation_id = result.get("id")
+            new_conversation = result.get("conversation_id")
+            if new_conversation and new_conversation != conversation_id:
                 db = get_db()
-                updates: dict = {"last_investigation_id": investigation_id}
-                if new_conversation != conversation_id:
-                    updates["conversation_id"] = new_conversation
-                await db.telegram_links.update_one({"_id": link["_id"]}, {"$set": updates})
-            elif event["type"] == "error":
-                final_answer = event["message"]
+                await db.telegram_links.update_one(
+                    {"_id": link["_id"]},
+                    {"$set": {"last_investigation_id": investigation_id, "conversation_id": new_conversation}},
+                )
+            elif investigation_id:
+                db = get_db()
+                await db.telegram_links.update_one(
+                    {"_id": link["_id"]},
+                    {"$set": {"last_investigation_id": investigation_id}},
+                )
+        except asyncio.TimeoutError:
+            investigation_task.cancel()
+            final_answer = "⏰ That question is taking too long. Try a simpler question or /new to start fresh."
+        except Exception as exc:
+            logger.error("investigation failed: %s", exc, exc_info=True)
+            final_answer = "❌ Something went wrong. Please try again."
     finally:
+        stop_typing.set()
         try:
             await typing_task
         except Exception:
@@ -804,7 +855,6 @@ async def handle_update(update: dict) -> None:
         answer_text,
         reply_markup=answer_keyboard(investigation_id),
     )
-    stop_typing.set()
 
 
 async def webhook_info() -> dict:

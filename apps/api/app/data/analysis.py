@@ -54,6 +54,9 @@ def _safe_eval(expr: str, df: pd.DataFrame) -> Any:
                 raise ValueError(f"bare name {node.id!r} not allowed in compute expr")
             if node.id == "df":
                 return df
+            if node.id == "pd":
+                import pandas as _pd
+                return _pd
             if node.id in df.columns:
                 return df[node.id]
             if node.id in _SAFE_FUNCTIONS:
@@ -64,6 +67,12 @@ def _safe_eval(expr: str, df: pd.DataFrame) -> Any:
                 return getattr(df, node.attr)
             import pandas as _pd
 
+            # Allow pd.to_datetime, pd.Timestamp etc for date parsing.
+            if isinstance(node.value, ast.Name) and node.value.id == "pd":
+                allowed_pd = {"to_datetime": _pd.to_datetime, "Timestamp": _pd.Timestamp, "Timedelta": _pd.Timedelta, "isna": _pd.isna, "notna": _pd.notna}
+                if node.attr in allowed_pd:
+                    return allowed_pd[node.attr]
+                raise ValueError(f"attribute access not allowed: {ast.dump(node)}")
             # Chained safe accessor: df['col'].str.startswith('S'),
             # df['date'].dt.year — read-only pandas ops only.
             if isinstance(node.value, ast.Attribute) and node.value.attr in ("str", "dt"):

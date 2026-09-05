@@ -232,7 +232,7 @@ Available operations:
 
 Rules:
 - Operations execute in sequence on the DataFrame.
-- For row counts per group use group_by with a count metric, e.g. {"row_count": "count"}.
+- For row counts per group use group_by with a count metric, e.g. {{"row_count": "count"}}.
 - compute exprs may use Series string/datetime accessors, e.g. df['Company'].str.startswith('S'), df['Date'].dt.year.
 - Final result should answer the question.
 - Output JSON: {{"steps": [...], "chart_type": "bar|line|pie|area|scatter|none", "chart_title": "...", "x_label": "...", "y_label": "..."}}

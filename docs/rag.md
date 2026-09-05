@@ -20,7 +20,7 @@ Question
   │     └── 2 alternative search queries
   │
   ├── Vector Search (Atlas $vectorSearch)
-  │     └── Gemini Embedding 001 (3072d) → cosine similarity
+  │     └── Jina Embeddings v5 Omni Small (1024D) → cosine similarity
   │
   ├── Lexical Search (Atlas $search)
   │     └── BM25 text matching
@@ -38,7 +38,7 @@ Question
 
 | Backend | Provider | Dimensions | Use Case |
 |---------|----------|------------|----------|
-| Gemini 001 | Google AI | 3072 | Primary (production) |
+| Jina v5 Omni Small | Jina AI | 1024 | Primary (production) |
 | Ollama | nomic-embed-text | 768 | Self-hosted fallback |
 | Local | all-MiniLM-L6-v2 | 384 | Offline/development |
 | Mock | Deterministic hash | 768 | Testing only |

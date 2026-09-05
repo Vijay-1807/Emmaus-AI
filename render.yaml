@@ -21,8 +21,14 @@ services:
         value: https://ollama.com/v1
       - key: GROQ_API_KEY
         sync: false
-      - key: GEMINI_API_KEY
+      - key: EMBEDDING_PROVIDER
+        value: jina
+      - key: EMBEDDING_API_KEY
         sync: false
+      - key: EMBEDDING_MODEL
+        value: jina-embeddings-v5-omni-small
+      - key: EMBEDDING_DIMENSIONS
+        value: "1024"
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
@@ -58,8 +64,14 @@ services:
         value: https://ollama.com/v1
       - key: GROQ_API_KEY
         sync: false
-      - key: GEMINI_API_KEY
+      - key: EMBEDDING_PROVIDER
+        value: jina
+      - key: EMBEDDING_API_KEY
         sync: false
+      - key: EMBEDDING_MODEL
+        value: jina-embeddings-v5-omni-small
+      - key: EMBEDDING_DIMENSIONS
+        value: "1024"
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY

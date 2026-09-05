@@ -44,7 +44,7 @@ Upload documents, datasets, images, handwritten pages, or audio. Ask a question.
        ▼              ▼              ▼
       RAG          Data Agent     Vision/Audio
        │              │              │
-  Hybrid +        Typed 7-Op     Gemma 4 Vision
+   Hybrid +        Typed 7-Op     Qwen 3.6 Vision
   Reranking       Interpreter    Whisper STT
        │              │              │
        └──────────────┼──────────────┘
@@ -56,8 +56,8 @@ Upload documents, datasets, images, handwritten pages, or audio. Ask a question.
                   Model Router
              ┌────────┼────────┐
              ▼        ▼        ▼
-          Cerebras   Groq    Ollama
-          Primary   2ndary  3rdary
+             Groq   Ollama    Mock
+           Primary Fallback  Offline
              │
              ▼
         Answer / Chart / Report
@@ -88,31 +88,31 @@ transcribe ──→ classify ──→ [rag, data, vision] (parallel)
 
 | Node | Purpose |
 |------|---------|
-| `transcribe` | Audio → text (Sarvam → Deepgram → Groq Whisper) |
+| `transcribe` | Audio → text (Deepgram → Sarvam → Groq Whisper) |
 | `classify` | LLM determines needed capabilities (rag/data/vision) |
 | `rag` | Multi-query retrieval + reranking |
 | `data` | Typed pandas operations on datasets |
-| `vision` | Gemma 4 image analysis + OCR |
+| `vision` | Qwen 3.6 image analysis + OCR; Ollama Gemma fallback |
 | `fuse` | Combine all evidence into unified context |
 | `verify` | LLM checks evidence sufficiency; retry once if not |
 | `generate` | Stream final answer with citations and charts |
 
 ## Model Routing
 
-Fallback order: **Cerebras → Groq → Ollama → Mock**
+Fallback order: **Groq → Ollama → Mock**. Cerebras is disabled legacy configuration.
 
 | Task | Primary | 2nd | 3rd | Model |
 |------|---------|-----|-----|-------|
-| Reasoning | Cerebras | Groq | Ollama | gpt-oss-120b |
-| Classification | Cerebras | Groq | Ollama | gpt-oss-120b |
-| Query Rewrite | Cerebras | Groq | Ollama | gpt-oss-120b |
-| Reranking | Cerebras | Groq | Ollama | gpt-oss-120b |
-| Verification | Cerebras | Groq | Ollama | gpt-oss-120b |
+| Reasoning | Groq | Ollama | Mock | openai/gpt-oss-120b |
+| Classification | Groq | Ollama | Mock | openai/gpt-oss-20b |
+| Query Rewrite | Groq | Ollama | Mock | openai/gpt-oss-20b |
+| Reranking | Groq | Ollama | Mock | openai/gpt-oss-20b |
+| Verification | Groq | Ollama | Mock | openai/gpt-oss-20b |
 | Vision | Groq (qwen3.6-27b) | Ollama (gemma4:31b) | Mock | qwen/qwen3.6-27b |
-| Embedding | Gemini 001 | Ollama | Local | gemini-embedding-001 (3072d) |
+| Embedding | Jina | Local/Mock fallback | — | jina-embeddings-v5-omni-small (1024D) |
 | Speech-to-Text | Deepgram | Sarvam | Groq | nova-3 / saaras:v4 / whisper-large-v3-turbo |
 
-**STT chain**: Sarvam Saaras v4 (best for Indian languages) → Deepgram Nova-3 (general) → Groq Whisper (fast/cheap)
+**STT chain**: Deepgram Nova-3 (primary) → Sarvam Saaras v4 (Indian-language fallback) → Groq Whisper Turbo (final fallback)
 
 ## RAG Pipeline
 
@@ -126,7 +126,7 @@ Question
   │     └── 2 alternative search queries via LLM
   │
   ├── Vector Search (Atlas $vectorSearch)
-  │     └── Gemini Embedding 001 (3072d) → cosine similarity
+   │     └── Jina Embeddings v5 Omni Small (1024D) → cosine similarity
   │
   ├── Lexical Search (Atlas $search)
   │     └── BM25 text matching
@@ -162,7 +162,7 @@ No `exec()`. 7 allow-listed operations:
 | Backend | FastAPI, Python 3.11+, Pydantic, PyMongo Async |
 | Orchestration | LangGraph (8-node conditional pipeline) |
 | Database | MongoDB Atlas (Vector Search + Atlas Search) |
-| Media | Cloudinary (or local) |
+| Media | Cloudinary with local fallback |
 | Models | Groq (gpt-oss-120b, gpt-oss-20b, qwen3.6-27b vision, whisper-turbo), Ollama Cloud (gpt-oss:120b, gemma4:31b fallback), Jina (embeddings-1024d) |
 | Observability | Langfuse (traces, generation spans, events) |
 | Auth | JWT (HS256) with rotating refresh tokens |
@@ -221,13 +221,13 @@ docker-compose up
 - **Observability**: Full Langfuse tracing across retrieval, reranking, and evaluation
 - **Job queue**: MongoDB-backed durable queue with worker process
 - **Telegram bot**: Full Telegram integration with webhook validation
-- **75 evaluation cases**: 12 categories (direct, multi-hop, table, handwriting, vision, audio, unanswerable, ambiguous, retrieval, mixed, data-analysis, conversational)
+- **Evaluation harness**: seed cases, seed from recent chats, run hybrid benchmarks, inspect metrics in Settings
 
 ## Resilience
 
 The system handles failures gracefully:
 
-- **Provider timeout**: Falls back through Ollama → Groq → Cerebras → Mock
+- **Provider timeout**: Falls back through Ollama → Mock after Groq
 - **Atlas unavailable**: Returns empty results (no crash)
 - **Embedding failure**: Fails open in test, fails closed in production
 - **OCR failure**: Returns partial analysis with confidence score
@@ -262,12 +262,12 @@ See `tests/test_resilience.py` for 40+ resilience test cases.
 │   │   ├── tests/
 │   │   └── pyproject.toml
 │   └── web/                 # Next.js frontend
-│       ├── app/             # 10 routes
-│       ├── components/      # Camera, Sidebar, AppLayout
+│       ├── app/             # 14 routes and route aliases
+│       ├── components/      # Responsive navbar, camera, voice, evaluation, observability
 │       ├── lib/             # api, store, types, utils
 │       └── package.json
 ├── evaluation/
-│   └── datasets/            # 75 eval cases
+│   └── datasets/            # Benchmark/evaluation cases
 ├── docs/                    # architecture, rag, evaluation, model-routing
 ├── infra/docker/            # Dockerfiles
 ├── docker-compose.yaml      # Local dev stack

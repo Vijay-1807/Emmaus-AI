@@ -11,6 +11,7 @@ logger = logging.getLogger("vedax.media")
 
 MEDIA_DIR = Path("media")
 IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
+_CLOUDINARY_UNAVAILABLE = False
 
 
 @dataclass
@@ -64,6 +65,7 @@ def kind_for(filename: str, content_type: str | None = None) -> str:
 
 class MediaService:
     def __init__(self):
+        global _CLOUDINARY_UNAVAILABLE
         self.settings = get_settings()
         mode = self.settings.media_storage
         if mode == "auto":
@@ -72,11 +74,23 @@ class MediaService:
         self._cloudinary_configured = False
         # Once Cloudinary rejects us for auth/permissions, stop trying —
         # every upload would warn + retry otherwise.
-        self._cloudinary_dead = False
+        self._cloudinary_dead = _CLOUDINARY_UNAVAILABLE
 
     @property
     def cloudinary_usable(self) -> bool:
         return self.mode == "cloudinary" and not self._cloudinary_dead
+
+    def _mark_cloudinary_failed(self, message: str) -> None:
+        global _CLOUDINARY_UNAVAILABLE
+        self._cloudinary_dead = True
+        _CLOUDINARY_UNAVAILABLE = True
+        logger.warning(
+            "Cloudinary rejected uploads (%s). Fix: Cloudinary Dashboard -> "
+            "Settings -> API Keys -> use a key with Upload(create) permission, "
+            "or set MEDIA_STORAGE=local. Falling back to local storage for "
+            "this service instance.",
+            message[:200],
+        )
 
     def _configure_cloudinary(self) -> None:
         if self._cloudinary_configured:
@@ -135,14 +149,7 @@ class MediaService:
         except Exception as exc:
             message = str(exc)
             if "forbidden" in message.lower() or "permission" in message.lower() or "unauthorized" in message.lower():
-                self._cloudinary_dead = True
-                logger.warning(
-                    "Cloudinary rejected uploads (%s). Fix: Cloudinary Dashboard → "
-                    "Settings → API Keys → use a key with Upload(create) permission, "
-                    "or clear Cloudinary keys to use local storage. "
-                    "Falling back to local storage for this and future uploads.",
-                    message[:200],
-                )
+                self._mark_cloudinary_failed(message)
             else:
                 logger.warning("Cloudinary upload failed (%s), falling back to local storage", message[:200])
             return await self._upload_local(data, filename, public_id, resource_kind)

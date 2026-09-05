@@ -86,7 +86,7 @@ WELCOME_TEXT = (
     "• \"What are the key insights in my dataset?\"\n"
     "• \"Analyze this photo\"\n\n"
     "📎 *Tips:* Attach a file with a caption, or use /generate <prompt> for AI images.\n\n"
-    "Commands: /new  /clear  /history  /status  /generate  /help"
+    "Commands: /new  /stop  /clear  /history  /status  /generate  /help"
 )
 
 HELP_TEXT = (
@@ -96,6 +96,7 @@ HELP_TEXT = (
     "• Attach a doc (PDF/DOCX/TXT/MD), dataset (CSV/XLSX/XLS), photo, or voice note — with or without a caption.\n\n"
     "*Commands:*\n"
     "• /new — fresh chat (clears conversation memory)\n"
+    "• /stop — cancel a running investigation\n"
     "• /clear — wipe all workspace data (docs, datasets, history)\n"
     "• /history — last 5 investigations\n"
     "• /status — your docs / datasets / media / chats\n"
@@ -274,7 +275,7 @@ def persistent_keyboard() -> dict:
     return {
         "keyboard": [
             [{"text": "/status"}, {"text": "/history"}, {"text": "/new"}, {"text": "/clear"}],
-            [{"text": "/generate"}, {"text": "/help"}],
+            [{"text": "/generate"}, {"text": "/stop"}, {"text": "/help"}],
         ],
         "resize_keyboard": True,
         "is_persistent": True,
@@ -411,6 +412,30 @@ def _is_locked(link: dict) -> bool:
     if expires.tzinfo is None:
         expires = expires.replace(tzinfo=timezone.utc)
     return expires > now()
+
+
+# Tracks live investigation tasks per chat so /stop and /clear can cancel
+# a runaway investigation instead of waiting out the 300s timeout.
+# Best-effort per process; the lock release below works cross-process anyway.
+_RUNNING_TASKS: dict[int, asyncio.Task] = {}
+
+
+async def _cancel_running(chat_id: int) -> bool:
+    """Cancel the live investigation for a chat. Returns True if one was running."""
+    task = _RUNNING_TASKS.pop(chat_id, None)
+    if task is not None and not task.done():
+        task.cancel()
+        return True
+    return False
+
+
+async def _force_unlock(link_id: str) -> None:
+    """Release a chat lock unconditionally (escape hatch for stuck runs)."""
+    db = get_db()
+    await db.telegram_links.update_one(
+        {"_id": link_id},
+        {"$set": {"locked": False}, "$unset": {"lock_token": "", "lock_expires_at": ""}},
+    )
 
 
 async def get_or_create_link(chat_id: int, from_user: dict) -> dict:
@@ -659,7 +684,7 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
         return True
     if cmd == "/new":
         if _is_locked(link):
-            await send_message(chat_id, "⏳ Still working on your previous question — try /new in a moment.")
+            await send_message(chat_id, "⏳ Still working on your previous question — send /stop to cancel it, or try /new in a moment.")
             return True
         await db.telegram_links.update_one(
             {"_id": link["_id"]},
@@ -667,10 +692,19 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
         )
         await send_message(chat_id, "💬 Fresh chat started — previous context cleared.")
         return True
+    if cmd == "/stop":
+        cancelled = await _cancel_running(chat_id)
+        await _force_unlock(link["_id"])
+        await send_message(
+            chat_id,
+            "⏹ Stopped the running investigation." if cancelled else "Nothing running — ask me anything!",
+        )
+        return True
     if cmd == "/clear":
-        if _is_locked(link):
-            await send_message(chat_id, "⏳ Still working on something — try /clear in a moment.")
-            return True
+        # Escape hatch: cancel any running investigation and force-unlock first,
+        # otherwise a stuck run would block the very command meant to reset it.
+        await _cancel_running(chat_id)
+        await _force_unlock(link["_id"])
         # Wipe all workspace data
         db = get_db()
         ws = workspace_id
@@ -760,7 +794,7 @@ async def handle_callback(update: dict) -> None:
         return
     if data == "newchat":
         if _is_locked(link):
-            await send_message(chat_id, "⏳ Still working on your previous question — try /new in a moment.")
+            await send_message(chat_id, "⏳ Still working on your previous question — send /stop to cancel it.")
             return
         await db.telegram_links.update_one(
             {"_id": link["_id"]},
@@ -884,6 +918,7 @@ async def handle_update(update: dict) -> None:
             attachment_ids=attachment_ids,
             audio_media_id=audio_media_id,
         ))
+        _RUNNING_TASKS[chat_id] = investigation_task
         try:
             result = await asyncio.wait_for(investigation_task, timeout=300)
             final_answer = result.get("answer", "")
@@ -904,10 +939,14 @@ async def handle_update(update: dict) -> None:
         except asyncio.TimeoutError:
             investigation_task.cancel()
             final_answer = "⏰ That question is taking too long. Try a simpler question or /new to start fresh."
+        except asyncio.CancelledError:
+            # /stop or /clear cancelled this run — report it instead of hanging.
+            final_answer = "⏹ Stopped. Send /new or ask again whenever you're ready."
         except Exception as exc:
             logger.error("investigation failed: %s", exc, exc_info=True)
             final_answer = "❌ Something went wrong. Please try again."
     finally:
+        _RUNNING_TASKS.pop(chat_id, None)
         stop_typing.set()
         try:
             await asyncio.wait_for(typing_task, timeout=2.0)

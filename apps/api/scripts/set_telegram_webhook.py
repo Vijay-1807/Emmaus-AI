@@ -17,6 +17,7 @@ COMMANDS = [
     {"command": "start", "description": "Welcome + create your workspace"},
     {"command": "help", "description": "How to use Emmaus AI"},
     {"command": "new", "description": "Start a fresh chat"},
+    {"command": "stop", "description": "Cancel the running investigation"},
     {"command": "clear", "description": "Wipe all workspace data"},
     {"command": "history", "description": "Recent investigations"},
     {"command": "status", "description": "Workspace stats"},

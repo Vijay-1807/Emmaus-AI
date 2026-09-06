@@ -520,7 +520,7 @@ export default function HomePage() {
         <div className="mx-auto mt-2 w-full max-w-3xl sm:mt-2.5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/device-shot.svg"
+            src="https://res.cloudinary.com/dy9xcggyt/image/upload/v1788713750/device-shot_1_oalshp.png"
             alt="Emmaus AI workspace on laptop and Telegram bot on mobile"
             className="h-auto w-full drop-shadow-[0_24px_50px_rgba(77,63,54,.22)]"
             loading="lazy"

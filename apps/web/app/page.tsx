@@ -337,11 +337,11 @@ export default function HomePage() {
       <Navbar />
 
       <section className="relative z-10 mx-auto flex min-h-[calc(100svh-80px)] max-w-4xl flex-col items-center justify-center px-4 pb-20 sm:px-8">
-        <div className="mb-6 text-center">
-          <h1 className="text-balance text-3xl font-medium tracking-[-0.04em] sm:text-4xl lg:text-5xl">
-            What should we investigate?
+        <div className="mb-5 text-center sm:mb-6">
+          <h1 className="text-balance font-editorial text-3xl font-medium tracking-[-0.02em] sm:text-4xl lg:text-5xl">
+            What should we <em className="italic">investigate?</em>
           </h1>
-          <p className="mx-auto mt-3 max-w-lg text-sm leading-5 text-[#655f59]">
+          <p className="mx-auto mt-2 max-w-lg text-[11px] leading-4 text-[#655f59] sm:mt-3 sm:text-sm sm:leading-5">
             Ask a question or add documents, datasets, images, and audio.
           </p>
         </div>
@@ -357,7 +357,7 @@ export default function HomePage() {
                 <div className="mb-1 max-h-52 overflow-y-auto rounded-xl border border-black/[.06] bg-white py-1 shadow-sm">
                   {mentionMatches.length === 0 ? (
                     <div className="px-3 py-2 text-xs text-[#8d8780]">
-                      {librarySources.length === 0 ? "No sources yet — upload a doc or dataset first, then type @" : "No match — try a shorter query."}
+                      {librarySources.length === 0 ? "Nothing here yet - upload a doc or dataset first, then type @" : "No match - try a shorter word."}
                     </div>
                   ) : (
                     <>

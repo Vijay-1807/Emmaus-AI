@@ -33,6 +33,8 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
   // Laptop = single webcam: no Flip button. (Kept for external/rare dual-cam setups.)
   const [multiCam, setMultiCam] = useState(false);
   const [facing, setFacing] = useState<"user" | "environment">("environment");
+  const facingRef = useRef(facing);
+  facingRef.current = facing;
 
   const stopStream = useCallback(() => {
     if (streamRef.current) {
@@ -134,7 +136,7 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
     if (name === "NotFoundError" || name === "OverconstrainedError")
       return "No camera found on this device. You can upload a photo instead.";
     if (name === "NotReadableError")
-      return "Camera is busy — another app may be using it. Close it and try again.";
+      return "Camera is busy - another app may be using it. Close it and try again.";
     if (err instanceof Error && err.message) return err.message;
     return "Camera unavailable. Check browser permissions or upload a photo instead.";
   }
@@ -178,6 +180,30 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
     setPreview(null);
     onClose();
   }, [stopStream, preview, onClose]);
+
+  // Laptop: if the user grants permission via the address-bar icon while
+  // the modal is open, start the camera automatically (no extra tap needed).
+  useEffect(() => {
+    if (mobile) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const perms = navigator.permissions as unknown as
+          | { query?: (c: { name: string }) => Promise<{ state: string; onchange: ((() => void) | null) }> }
+          | undefined;
+        if (!perms?.query) return;
+        const status = await perms.query({ name: "camera" });
+        status.onchange = () => {
+          if (!cancelled && status.state === "granted") void startCamera(facingRef.current);
+        };
+      } catch {
+        /* Permissions API unsupported — Try again button covers it */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mobile, startCamera]);
 
   // Escape + backdrop tap dismiss (mobile users expect both).
   useEffect(() => {

@@ -82,7 +82,7 @@ export default function InvestigationsPage() {
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Investigation History</h1>
+          <h1 className="font-editorial text-2xl font-medium tracking-tight">Investigation <em className="italic">History</em></h1>
           <p className="mt-1 text-sm text-[#655f59]">Review past investigations and expand to read answers</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">

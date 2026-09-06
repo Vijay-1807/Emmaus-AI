@@ -128,7 +128,7 @@ export default function DocumentsPage() {
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">Documents</h1>
+            <h1 className="font-editorial text-2xl font-medium italic tracking-tight">Documents</h1>
             <button
               onClick={() => setShowInfo(!showInfo)}
               className="rounded-full p-1 text-[#8d8780] hover:bg-black/[.06] hover:text-black"
@@ -173,9 +173,9 @@ export default function DocumentsPage() {
         <div className="mb-5 rounded-2xl border border-black/[.06] bg-white/60 p-4 text-sm text-[#24231f] backdrop-blur">
           <p className="font-semibold mb-1">How documents work in Emmaus</p>
           <ul className="list-disc pl-4 space-y-1 text-xs leading-relaxed text-[#655f59]">
-            <li><strong>RAG (Retrieval-Augmented Generation)</strong> — Documents are chunked and embedded into a vector store. When you ask a question in chat, the AI searches relevant chunks and uses them as context.</li>
-            <li><strong>Attach in chat</strong> — You can also attach files directly in the home chat box. They go into the active workspace automatically.</li>
-            <li><strong>Images</strong> — Images are processed via Vision OCR; upload receipts, handwritten notes, charts, etc.</li>
+            <li><strong>RAG (Retrieval-Augmented Generation)</strong> - Documents are chunked and embedded into a vector store. When you ask a question in chat, the AI searches relevant chunks and uses them as context.</li>
+            <li><strong>Attach in chat</strong> - You can also attach files directly in the home chat box. They go into the active workspace automatically.</li>
+            <li><strong>Images</strong> - Images are processed via Vision OCR; upload receipts, handwritten notes, charts, etc.</li>
             <li><strong>Status &quot;ready&quot;</strong> means the doc is indexed and searchable in your workspace chat.</li>
           </ul>
           <button onClick={() => setShowInfo(false)} className="mt-3 text-xs text-[#6366f1] underline">Dismiss</button>

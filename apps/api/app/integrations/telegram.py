@@ -45,7 +45,7 @@ _STRONG_IMAGE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Question words — if present, it's a question about sources, not an image wish.
+# Question words - if present, it's a question about sources, not an image wish.
 _QUESTION_RE = re.compile(
     r"\?|\b(who|what|when|where|why|how|which|whom|whose|is|are|was|were|do|does|did|"
     r"can|could|should|explain|summar\w*|analyz\w*|tell|describe|list|show|find|compare)\b",
@@ -57,7 +57,7 @@ def classify_image_request(question: str, has_attachments: bool) -> str:
     """Classify plain-text input for image intent.
 
     Returns "strong" (generate directly), "weak" (investigate + hint),
-    or "none". Attachments always win — e.g. "generate alt text" with a
+    or "none". Attachments always win - e.g. "generate alt text" with a
     photo attached must go to vision, never to image generation.
     """
     if has_attachments:
@@ -110,18 +110,18 @@ WELCOME_TEXT = (
 )
 
 HELP_TEXT = (
-    "📖 *Emmaus AI — Help*\n\n"
+    "📖 *Emmaus AI - Help*\n\n"
     "*Ask:*\n"
     "• Type any question about your sources.\n"
-    "• Attach a doc (PDF/DOCX/TXT/MD), dataset (CSV/XLSX/XLS), photo, or voice note — with or without a caption.\n\n"
+    "• Attach a doc (PDF/DOCX/TXT/MD), dataset (CSV/XLSX/XLS), photo, or voice note - with or without a caption.\n\n"
     "*Commands:*\n"
-    "• /new — fresh chat (clears conversation memory)\n"
-    "• /stop — cancel a running investigation\n"
-    "• /clear — wipe all workspace data (docs, datasets, history)\n"
-    "• /history — last 5 investigations\n"
-    "• /status — your docs / datasets / media / chats\n"
-    "• /generate <prompt> — generate an image with AI\n"
-    "• /help — this help\n\n"
+    "• /new - fresh chat (clears conversation memory)\n"
+    "• /stop - cancel a running investigation\n"
+    "• /clear - wipe all workspace data (docs, datasets, history)\n"
+    "• /history - last 5 investigations\n"
+    "• /status - your docs / datasets / media / chats\n"
+    "• /generate <prompt> - generate an image with AI\n"
+    "• /help - this help\n\n"
     "💡 *Tip:* After an answer, tap *Sources* to see citations, *New chat* to reset."
 )
 
@@ -241,7 +241,7 @@ async def send_message(
         except TelegramApiError as exc:
             if exc.error_code not in (400,):
                 raise
-            # Markdown failed — try HTML fallback, then plain text.
+            # Markdown failed - try HTML fallback, then plain text.
             # Always preserve reply_markup (buttons are JSON, not Markdown).
             html_text = (
                 chunk.replace("&", "&amp;")
@@ -257,7 +257,7 @@ async def send_message(
             try:
                 await telegram_request("sendMessage", payload)
             except TelegramApiError:
-                # HTML also failed — send plain text, still keep buttons
+                # HTML also failed - send plain text, still keep buttons
                 payload["text"] = chunk
                 payload.pop("parse_mode", None)
                 await telegram_request("sendMessage", payload)
@@ -322,7 +322,7 @@ async def check_rate_limit(link: dict) -> str | None:
             if expires.tzinfo is None:
                 expires = expires.replace(tzinfo=timezone.utc)
             if expires <= now():
-                # Stale lock from a crashed run — clear it atomically
+                # Stale lock from a crashed run - clear it atomically
                 result = await db.telegram_links.update_one(
                     {
                         "_id": link_id,
@@ -338,11 +338,11 @@ async def check_rate_limit(link: dict) -> str | None:
                     link["locked"] = False
                 else:
                     # Another process cleared it
-                    return "⏳ I'm still working on your previous question — one moment…"
+                    return "⏳ I'm still working on your previous question - one moment…"
             else:
-                return "⏳ I'm still working on your previous question — one moment…"
+                return "⏳ I'm still working on your previous question - one moment…"
         else:
-            return "⏳ I'm still working on your previous question — one moment…"
+            return "⏳ I'm still working on your previous question - one moment…"
     
     # Atomically check rate limit and append timestamp
     now_ts = now().timestamp()
@@ -377,7 +377,7 @@ async def check_rate_limit(link: dict) -> str | None:
         recent = [t for t in (updated_link or {}).get("msg_times", []) if now_ts - t < RATE_WINDOW_SECONDS]
         if len(recent) >= MAX_MSGS_PER_MINUTE:
             wait = int(RATE_WINDOW_SECONDS - (now_ts - min(recent))) + 1
-            return f"🐢 Slow down — too many messages at once, try again in ~{wait}s."
+            return f"🐢 Slow down - too many messages at once, try again in ~{wait}s."
     
     return None
 
@@ -564,7 +564,7 @@ async def extract_question(
         await db.media_assets.insert_one(media)
         audio_media_id = media["_id"]
         if not text:
-            text = transcript or "(Could not transcribe voice — please type your question)"
+            text = transcript or "(Could not transcribe voice - please type your question)"
 
     for photo in (message.get("photo") or [])[-1:]:
         data, _ = await download_file(photo["file_id"])
@@ -583,7 +583,7 @@ async def extract_question(
         except Exception as exc:
             logger.warning("telegram photo analysis failed: %s", exc)
             if chat_id:
-                await send_message(chat_id, "⚠️ Image analysis partially failed — I'll do my best with the text question.")
+                await send_message(chat_id, "⚠️ Image analysis partially failed - I'll do my best with the text question.")
         media = {
             "_id": uuid.uuid4().hex,
             "workspace_id": workspace_id,
@@ -669,17 +669,23 @@ async def _generate_and_send_image(chat_id: int, prompt: str) -> None:
 
     except Exception as exc:
         logger.error("Telegram image generation failed: %s", exc, exc_info=True)
-        await send_message(chat_id, "❌ Image generation failed — please try again or use a different prompt.")
+        await send_message(chat_id, "❌ Image generation failed - please try again or use a different prompt.")
 
 
-async def handle_command(chat_id: int, link: dict, command: str) -> bool:
+async def handle_command(chat_id: int, link: dict, command: str, display_name: str = "") -> bool:
     """Returns True if the text was a command (handled, skip investigation)."""
     db = get_db()
     workspace_id = link["workspace_id"]
     cmd = command.split()[0].split("@")[0]
 
     if cmd == "/start":
-        await send_message(chat_id, WELCOME_TEXT, reply_markup=persistent_keyboard())
+        safe_name = re.sub(r"([*_`\[\]])", r"\\\1", (display_name or "").strip()[:30])
+        greeting = f"👋 Welcome to Emmaus AI{', ' + safe_name if safe_name else ''}!"
+        await send_message(
+            chat_id,
+            WELCOME_TEXT.replace("👋 *Welcome to Emmaus AI*", greeting, 1),
+            reply_markup=persistent_keyboard(),
+        )
         return True
     if cmd == "/generate":
         # Extract prompt from the command
@@ -707,24 +713,24 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
         await _generate_and_send_image(chat_id, prompt)
         return True
     if cmd == "/help":
-        await send_message(chat_id, HELP_TEXT)
+        await send_message(chat_id, HELP_TEXT, reply_markup=persistent_keyboard())
         return True
     if cmd == "/new":
         if _is_locked(link):
-            await send_message(chat_id, "⏳ Still working on your previous question — send /stop to cancel it, or try /new in a moment.")
+            await send_message(chat_id, "⏳ Still working on your previous question - send /stop to cancel it, or try /new in a moment.")
             return True
         await db.telegram_links.update_one(
             {"_id": link["_id"]},
             {"$set": {"conversation_id": None, "last_investigation_id": None}},
         )
-        await send_message(chat_id, "💬 Fresh chat started — previous context cleared.")
+        await send_message(chat_id, "💬 Fresh chat started - previous context cleared.")
         return True
     if cmd == "/stop":
         cancelled = await _cancel_running(chat_id)
         await _force_unlock(link["_id"])
         await send_message(
             chat_id,
-            "⏹ Stopped the running investigation." if cancelled else "Nothing running — ask me anything!",
+            "⏹ Stopped the running investigation." if cancelled else "Nothing running - ask me anything!",
         )
         return True
     if cmd == "/clear":
@@ -751,7 +757,7 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
             f"Deleted: {docs.deleted_count} docs, {datasets.deleted_count} datasets, "
             f"{media.deleted_count} media, {convs.deleted_count} conversations, "
             f"{invs.deleted_count} investigations.\n\n"
-            f"Start fresh — upload a file or ask a question!",
+            f"Start fresh - upload a file or ask a question!",
         )
         return True
     if cmd == "/history":
@@ -769,7 +775,7 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
         await send_message(
             chat_id,
             "🕘 *Recent investigations*\n\n"
-            + ("\n".join(lines) if lines else "Nothing yet — ask me anything!")
+            + ("\n".join(lines) if lines else "Nothing yet - ask me anything!")
             + ("\n\n💬 Ask again to revisit any topic. Use /clear to wipe history." if lines else ""),
         )
         return True
@@ -835,20 +841,20 @@ async def handle_callback(update: dict) -> None:
         return
     if data == "newchat":
         if _is_locked(link):
-            await send_message(chat_id, "⏳ Still working on your previous question — send /stop to cancel it.")
+            await send_message(chat_id, "⏳ Still working on your previous question - send /stop to cancel it.")
             return
         await db.telegram_links.update_one(
             {"_id": link["_id"]},
             {"$set": {"conversation_id": None, "last_investigation_id": None}},
         )
-        await send_message(chat_id, "💬 Fresh chat started — previous context cleared.")
+        await send_message(chat_id, "💬 Fresh chat started - previous context cleared.")
     elif data.startswith("sources:"):
         inv_id = data.split(":", 1)[1]
         inv = await db.investigations.find_one(
             {"_id": inv_id, "workspace_id": link["workspace_id"]}
         )
         await send_message(
-            chat_id, format_citations(inv) if inv else "Sources expired — ask again to refresh."
+            chat_id, format_citations(inv) if inv else "Sources expired - ask again to refresh."
         )
 
 
@@ -897,9 +903,10 @@ async def handle_update(update: dict) -> None:
 
     text = (message.get("text") or "").strip()
     if text.startswith("/"):
-        if await handle_command(chat_id, link, text):
+        display_name = (message.get("from") or {}).get("first_name", "")
+        if await handle_command(chat_id, link, text, display_name=display_name):
             return
-        await send_message(chat_id, "Unknown command. Try /help.")
+        await send_message(chat_id, "Unknown command - I know /new, /stop, /clear, /history, /status, /generate and /help.")
         return
 
     limited = await check_rate_limit(link)
@@ -923,7 +930,7 @@ async def handle_update(update: dict) -> None:
         if not text:
             text = "Explain this."
     except Exception as exc:
-        await send_message(chat_id, "⚠️ Could not process that attachment — please try again.")
+        await send_message(chat_id, "⚠️ Could not process that attachment - please try again.")
         return
 
     # Image-intent routing BEFORE the RAG lock: strong wishes generate
@@ -953,7 +960,7 @@ async def handle_update(update: dict) -> None:
             await release_chat_lock(link["_id"], stale.get("lock_token", ""))
             lock_token = await claim_chat_lock(link["_id"])
         if not lock_token:
-            await send_message(chat_id, "⏳ Still working on your previous question — send /stop to cancel it, or try again in ~30s.")
+            await send_message(chat_id, "⏳ Still working on your previous question - send /stop to cancel it, or try again in ~30s.")
             return
 
     stop_typing = asyncio.Event()
@@ -994,7 +1001,7 @@ async def handle_update(update: dict) -> None:
             investigation_task.cancel()
             final_answer = "⏰ That question is taking too long. Try a simpler question or /new to start fresh."
         except asyncio.CancelledError:
-            # /stop or /clear cancelled this run — report it instead of hanging.
+            # /stop or /clear cancelled this run - report it instead of hanging.
             final_answer = "⏹ Stopped. Send /new or ask again whenever you're ready."
         except Exception as exc:
             logger.error("investigation failed: %s", exc, exc_info=True)

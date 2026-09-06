@@ -234,7 +234,7 @@ export default function VoiceRecordModal({ isOpen, onClose, onAudioReady }: Voic
               {isRecording
                 ? "Recording... Speak clearly into your mic"
                 : audioBlob
-                ? "✓ Recording ready — click Analyze to transcribe"
+                ? "✓ Recording ready - tap Analyze to transcribe"
                 : "Click the mic above to start recording"}
             </p>
 

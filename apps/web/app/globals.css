@@ -12,6 +12,7 @@
 
 @theme {
   --font-display: "Helvetica Regular", "Inter", system-ui, sans-serif;
+  --font-editorial: var(--font-playfair), "Playfair Display", Georgia, "Times New Roman", serif;
   --color-bg: #faf9ef;
   --color-surface: rgba(255, 255, 255, 0.62);
   --color-surface-2: rgba(255, 255, 255, 0.42);

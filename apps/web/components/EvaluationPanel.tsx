@@ -132,7 +132,7 @@ export default function EvaluationPanel({ workspaceId }: { workspaceId: string }
         <div className="mb-4 rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-3 text-xs leading-relaxed text-amber-800 backdrop-blur">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p>
-              <span className="font-semibold">No seeded cases yet</span> — turn your
+              <span className="font-semibold">No seeded cases yet</span> - turn your
               recent chats into benchmark cases in one click, then run.
             </p>
             <button

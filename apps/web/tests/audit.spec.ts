@@ -165,7 +165,7 @@ test.describe("Core interactions", () => {
     await textarea.pressSequentially("@", { delay: 40 });
     // Debounced library fetch + render
     await expect(
-      page.locator("text=No sources yet").or(page.locator("text=No match"))
+      page.locator("text=Nothing here yet").or(page.locator("text=No match"))
     ).toBeVisible({ timeout: 7000 });
   });
 

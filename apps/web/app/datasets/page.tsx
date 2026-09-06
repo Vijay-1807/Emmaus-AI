@@ -114,7 +114,7 @@ export default function DatasetsPage() {
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">Datasets</h1>
+            <h1 className="font-editorial text-2xl font-medium italic tracking-tight">Datasets</h1>
             <button
               onClick={() => setShowInfo(!showInfo)}
               className="rounded-full p-1 text-[#8d8780] hover:bg-black/[.06] hover:text-black"
@@ -159,10 +159,10 @@ export default function DatasetsPage() {
         <div className="mb-5 rounded-2xl border border-black/[.06] bg-white/60 p-4 text-sm text-[#24231f] backdrop-blur">
           <p className="font-semibold mb-1">How datasets work in Emmaus</p>
           <ul className="list-disc pl-4 space-y-1 text-xs leading-relaxed text-[#655f59]">
-            <li><strong>Upload CSV or XLSX</strong> — The file is parsed and its rows/columns become available as structured data.</li>
-            <li><strong>Ask in chat</strong> — Type queries like &quot;Show me a bar chart of sales by region&quot; or &quot;What is the average revenue per month?&quot; and the AI will analyse the dataset and render charts automatically.</li>
-            <li><strong>Charts</strong> — Bar, Line, Area, and Pie charts render directly in the chat response.</li>
-            <li><strong>Attach at query time</strong> — You can also drop a CSV directly in the home chat box for one-off analysis.</li>
+            <li><strong>Upload CSV or XLSX</strong> - The file is parsed and its rows/columns become available as structured data.</li>
+            <li><strong>Ask in chat</strong> - Type queries like &quot;Show me a bar chart of sales by region&quot; or &quot;What is the average revenue per month?&quot; and the AI will analyse the dataset and render charts automatically.</li>
+            <li><strong>Charts</strong> - Bar, Line, Area, and Pie charts render directly in the chat response.</li>
+            <li><strong>Attach at query time</strong> - You can also drop a CSV directly in the home chat box for one-off analysis.</li>
           </ul>
           <button onClick={() => setShowInfo(false)} className="mt-3 text-xs text-[#6366f1] underline">Dismiss</button>
         </div>

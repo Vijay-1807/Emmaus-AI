@@ -413,7 +413,7 @@ export default function HomePage() {
               </p>
             )}
 
-            {showImageGen && (draftId || workspaces[0]?.id) && (
+            {showImageGen && (
               <div className="border-t border-black/[.06] pt-2 mt-1">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[10px] font-medium text-[#8d8780] uppercase tracking-wider">Image Generation</span>
@@ -421,7 +421,7 @@ export default function HomePage() {
                     <X size={10} />
                   </button>
                 </div>
-                <ImageGenerator workspaceId={draftId || workspaces[0].id} />
+                <ImageGenerator workspaceId={draftId || workspaces[0]?.id || ""} />
               </div>
             )}
 
@@ -430,7 +430,16 @@ export default function HomePage() {
                 <ToolBtn icon={<FileText size={14} />} label="Upload" onClick={() => filesRef.current?.click()} />
                 <ToolBtn icon={<Camera size={14} />} label="Camera" onClick={() => setShowCamera(true)} />
                 <ToolBtn icon={<Mic size={14} />} label="Voice" onClick={() => setShowVoice(true)} />
-                <ToolBtn icon={<Sparkles size={14} />} label="Image Gen" onClick={() => setShowImageGen((v) => !v)} />
+                <ToolBtn icon={<Sparkles size={14} />} label="Image Gen" onClick={() => void (async () => {
+                  if (showImageGen) {
+                    setShowImageGen(false);
+                    return;
+                  }
+                  // Mobile with zero workspaces: create the draft first,
+                  // otherwise the panel has no workspace to generate into.
+                  if (!draftId && workspaces.length === 0) await ensureDraft();
+                  setShowImageGen(true);
+                })()} />
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="hidden text-[10px] text-[#8d8780] sm:block">Groq &middot; 120B</span>

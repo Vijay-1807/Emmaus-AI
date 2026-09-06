@@ -17,7 +17,6 @@ interface GeneratedImage {
 
 export default function ImageGenerator({ workspaceId, onImageGenerated }: ImageGeneratorProps) {
   const [prompt, setPrompt] = useState("");
-  const [steps, setSteps] = useState(4);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedImage, setGeneratedImage] = useState<GeneratedImage | null>(null);
@@ -41,10 +40,9 @@ export default function ImageGenerator({ workspaceId, onImageGenerated }: ImageG
     setError(null);
     setGeneratedImage(null);
     try {
-      const payload: Record<string, unknown> = { prompt: prompt.trim(), steps };
       const result = await apiFetch<{ success: boolean; image: string; mime: string; error?: string; metadata?: Record<string, unknown> }>(
         `/api/image/generate?workspace_id=${workspaceId}`,
-        { method: "POST", body: JSON.stringify(payload) }
+        { method: "POST", body: JSON.stringify({ prompt: prompt.trim(), steps: 4 }) }
       );
       if (!result.success || !result.image) throw new Error(result.error || "Failed to generate image");
       const newImage: GeneratedImage = { url: result.image, mime: result.mime, metadata: result.metadata };
@@ -109,19 +107,6 @@ export default function ImageGenerator({ workspaceId, onImageGenerated }: ImageG
           className="w-full resize-none rounded-xl border border-black/[.08] bg-white/60 px-3 py-2.5 text-sm leading-5 outline-none backdrop-blur-sm placeholder:text-[#a8a29e] focus:border-[#b8a08a]/40 focus:ring-2 focus:ring-[#b8a08a]/20"
           disabled={loading}
         />
-        <div className="mt-1.5 flex items-center gap-2">
-          <select
-            value={steps}
-            onChange={(e) => setSteps(Number(e.target.value))}
-            className="rounded-lg border border-black/[.06] bg-white/60 px-2 py-1 text-[11px] text-[#655f59] backdrop-blur focus:outline-none"
-            disabled={loading}
-          >
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
-              <option key={s} value={s}>{s} step{s !== 1 ? "s" : ""}</option>
-            ))}
-          </select>
-          <span className="text-[10px] text-[#a8a29e]">{prompt.length}/2048</span>
-        </div>
       </div>
 
       {/* Error */}
@@ -170,11 +155,6 @@ export default function ImageGenerator({ workspaceId, onImageGenerated }: ImageG
               <RefreshCw size={12} /> Regenerate
             </button>
           </div>
-          {generatedImage.metadata && (
-            <p className="text-center text-[10px] text-[#a8a29e]">
-              FLUX.1 &middot; {String(generatedImage.metadata.steps || steps)} steps
-            </p>
-          )}
         </div>
       )}
 

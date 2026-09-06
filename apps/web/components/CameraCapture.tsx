@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect, useMemo } from "react";
-import { Aperture, Camera, Loader2, X, RotateCcw, Check, SwitchCamera } from "lucide-react";
+import { Camera, Loader2, X, RotateCcw, Check, SwitchCamera, Upload } from "lucide-react";
 
 interface CameraCaptureProps {
   onCapture: (blob: Blob, filename: string) => void;
@@ -24,7 +24,7 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
   const streamRef = useRef<MediaStream | null>(null);
   const runId = useRef(0);
   const envInputRef = useRef<HTMLInputElement>(null);
-  const userInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const [streaming, setStreaming] = useState(false);
   const [starting, setStarting] = useState(!mobile);
   const [preview, setPreview] = useState<string | null>(null);
@@ -84,13 +84,7 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
         }
         setStreaming(true);
       } catch (err) {
-        if (alive()) {
-          setError(
-            err instanceof Error && err.message
-              ? err.message
-              : "Camera unavailable. Check browser permissions."
-          );
-        }
+        if (alive()) setError(friendlyCameraError(err));
       } finally {
         if (alive()) setStarting(false);
       }
@@ -118,8 +112,31 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
   function handleNativeFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file) return; // user backed out of the camera app — choices stay open
+    if (!file) {
+      onClose(); // user backed out of the camera app
+      return;
+    }
     onCapture(file, file.name || `capture-${Date.now()}.jpg`);
+  }
+
+  function handleUploadFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    onCapture(file, file.name || `upload-${Date.now()}.jpg`);
+  }
+
+  /** Raw browser errors ("Permission denied") confuse users — translate them. */
+  function friendlyCameraError(err: unknown): string {
+    const name = err instanceof DOMException ? err.name : "";
+    if (name === "NotAllowedError")
+      return "Camera is blocked. Click the camera icon in the address bar, choose Allow, then try again.";
+    if (name === "NotFoundError" || name === "OverconstrainedError")
+      return "No camera found on this device. You can upload a photo instead.";
+    if (name === "NotReadableError")
+      return "Camera is busy — another app may be using it. Close it and try again.";
+    if (err instanceof Error && err.message) return err.message;
+    return "Camera unavailable. Check browser permissions or upload a photo instead.";
   }
 
   const capture = useCallback(() => {
@@ -186,66 +203,22 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
     void startCamera(next);
   }
 
-  // ── Mobile: native camera app (front + rear live in the OS camera UI) ──
+  // ── Mobile: straight into the native camera app, no chooser dialog ──
+  // This component only mounts after the user taps Camera, so auto-opening
+  // the rear camera here IS the tap response. Front camera users can flip
+  // inside the OS camera UI. Backing out closes the (invisible) modal.
   if (mobile) {
     return (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-        onClick={handleBackdrop}
-      >
-        <div className="w-full max-w-sm rounded-3xl border border-white/50 bg-[#fffdf8] p-6 shadow-2xl">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-black/[.05] text-[#514c47]">
-                <Camera size={17} />
-              </span>
-              <div>
-                <h3 className="text-sm font-bold">Take a photo</h3>
-                <p className="text-[11px] text-[#8d8780]">Opens your camera app</p>
-              </div>
-            </div>
-            <button
-              onClick={handleClose}
-              aria-label="Close camera"
-              className="rounded-full p-1.5 text-[#8d8780] transition hover:bg-black/[.06] hover:text-black"
-            >
-              <X size={16} />
-            </button>
-          </div>
-          <div className="mt-5 grid gap-2">
-            <button
-              onClick={() => envInputRef.current?.click()}
-              className="flex items-center justify-center gap-2 rounded-2xl bg-[#282521] py-3 text-sm font-semibold text-white shadow-md transition hover:bg-black"
-            >
-              <Aperture size={15} />
-              Rear camera
-            </button>
-            <button
-              onClick={() => userInputRef.current?.click()}
-              className="flex items-center justify-center gap-2 rounded-2xl border border-black/[.1] bg-white/70 py-3 text-sm font-semibold transition hover:bg-white"
-            >
-              <SwitchCamera size={15} />
-              Front camera
-            </button>
-          </div>
-          <input
-            ref={envInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleNativeFile}
-          />
-          <input
-            ref={userInputRef}
-            type="file"
-            accept="image/*"
-            capture="user"
-            className="hidden"
-            onChange={handleNativeFile}
-          />
-        </div>
-      </div>
+      <input
+        ref={envInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        aria-hidden
+        tabIndex={-1}
+        onChange={handleNativeFile}
+      />
     );
   }
 
@@ -305,6 +278,11 @@ export default function CameraCapture({ onCapture, onClose }: CameraCaptureProps
                       >
                         Try again
                       </button>
+                      <button onClick={() => uploadInputRef.current?.click()} className="flex items-center gap-1.5 rounded-full border border-white/40 px-5 py-2 text-xs font-bold text-white transition hover:bg-white/10">
+                        <Upload size={12} />
+                        Upload instead
+                      </button>
+                      <input ref={uploadInputRef} type="file" accept="image/*" className="hidden" onChange={handleUploadFile} />
                     </>
                   ) : (
                     <>

@@ -291,14 +291,18 @@ def answer_keyboard(investigation_id: str | None = None) -> dict:
 
 
 def persistent_keyboard() -> dict:
-    """Bottom reply-keyboard so commands are always one tap away (not a slash)."""
+    """Bottom reply-keyboard so commands are always one tap away (not a slash).
+
+    One-time: it collapses after each tap so it never covers the chat.
+    The bot Menu (registered commands) reopens it anytime.
+    """
     return {
         "keyboard": [
             [{"text": "/status"}, {"text": "/history"}, {"text": "/new"}, {"text": "/clear"}],
             [{"text": "/generate"}, {"text": "/stop"}, {"text": "/help"}],
         ],
         "resize_keyboard": True,
-        "is_persistent": True,
+        "one_time_keyboard": True,
     }
 
 
@@ -774,10 +778,24 @@ async def handle_command(chat_id: int, link: dict, command: str) -> bool:
         datasets = await db.datasets.count_documents({"workspace_id": workspace_id})
         media = await db.media_assets.count_documents({"workspace_id": workspace_id})
         convs = await db.conversations.count_documents({"workspace_id": workspace_id})
+        try:
+            agg = await db.media_assets.aggregate([
+                {"$match": {"workspace_id": workspace_id}},
+                {"$group": {"_id": None, "total": {"$sum": "$size_bytes"}}},
+            ]).to_list(1)
+            total_bytes = (agg[0].get("total") if agg else 0) or 0
+        except Exception:
+            total_bytes = 0
+        size_str = (
+            f"{total_bytes / 1048576:.1f} MB"
+            if total_bytes >= 1048576
+            else f"{total_bytes / 1024:.0f} KB" if total_bytes >= 1024
+            else f"{total_bytes} B"
+        )
         await send_message(
             chat_id,
             f"📊 *Your workspace*\n\nDocuments: {docs}\nDatasets: {datasets}\n"
-            f"Media: {media}\nConversations: {convs}",
+            f"Media: {media} ({size_str})\nConversations: {convs}",
         )
         return True
     return False

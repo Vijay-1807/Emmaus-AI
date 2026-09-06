@@ -165,8 +165,24 @@ test.describe("Core interactions", () => {
     await textarea.pressSequentially("@", { delay: 40 });
     // Debounced library fetch + render
     await expect(
-      page.locator("text=No documents in your library yet").or(page.locator("text=No match"))
+      page.locator("text=No sources yet").or(page.locator("text=No match"))
     ).toBeVisible({ timeout: 7000 });
+  });
+
+  test("Image Gen toggles prompt-to-output panel on Home", async ({ page }) => {
+    await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: /Image Gen/i }).click();
+    await expect(page.getByPlaceholder(/Describe an image/i)).toBeVisible({ timeout: 7000 });
+    await expect(page.getByRole("button", { name: /^Generate$/i })).toBeVisible();
+    // Simplified UI: no steps dropdown, no char counter
+    await expect(page.locator("text=/2048/")).toHaveCount(0);
+  });
+
+  test("Image Gen panel opens on mobile viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: /Image Gen/i }).click();
+    await expect(page.getByPlaceholder(/Describe an image/i)).toBeVisible({ timeout: 7000 });
   });
 
   test("Footer links reachable", async ({ page }) => {

@@ -499,12 +499,25 @@ export default function HomePage() {
         )}
       </section>
 
-      {/* Device showcase — transparent mockups floating on the background */}
+      {/* Device showcase — Title, description, then image, no gaps */}
       <section className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-4 text-center sm:px-8">
         <h2 className="font-editorial text-3xl font-medium tracking-[-0.02em] sm:text-4xl">
           Take Emmaus <em className="italic">anywhere</em>
         </h2>
-        <div className="mx-auto mt-3 w-full max-w-3xl sm:mt-4">
+        <p className="mx-auto mt-2 max-w-2xl text-[12px] leading-5 text-[#655f59] sm:mt-2 sm:text-[13px] sm:leading-5">
+          Your documents, datasets, images and voice - answered together with
+          citations, charts and AI visuals,{" "}
+          <a
+            href="https://t.me/EmmausAIBot"
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-[#282521] underline decoration-[#b8a08a]/60 underline-offset-2 transition hover:text-black"
+          >
+            @EmmausAIBot
+          </a>{" "}
+          on Telegram or here on the web.
+        </p>
+        <div className="mx-auto mt-3 w-full max-w-3xl">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/device-shot.svg"
@@ -513,22 +526,11 @@ export default function HomePage() {
             loading="lazy"
           />
         </div>
-        <p className="mx-auto mt-3 max-w-xl whitespace-nowrap text-[11px] leading-4 text-[#655f59] sm:text-sm sm:leading-5">
-          Deep work on your laptop, quick answers from{" "}
-          <a
-            href="https://t.me/EmmausAIBot"
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-[#282521] underline decoration-[#b8a08a]/60 underline-offset-2 transition hover:text-black"
-          >
-            @EmmausAIBot
-          </a>.
-        </p>
         <a
           href="https://t.me/EmmausAIBot"
           target="_blank"
           rel="noreferrer"
-          className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#282521] px-5 py-2.5 text-sm font-medium text-white shadow-md transition hover:-translate-y-0.5 hover:bg-black sm:mt-5"
+          className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#282521] px-5 py-2.5 text-sm font-medium text-white shadow-md transition hover:-translate-y-0.5 hover:bg-black"
         >
           <Send size={14} />
           Chat with @EmmausAIBot on Telegram

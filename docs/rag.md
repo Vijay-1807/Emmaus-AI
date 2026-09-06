@@ -28,8 +28,8 @@ Question
   ├── RRF Fusion (k=60)
   │     └── Reciprocal Rank Fusion of both result sets
   │
-  ├── LLM Reranking (optional)
-  │     └── Groq fast model scores relevance 0-10
+   ├── LLM Reranking (optional)
+    │     └── Ollama gpt-oss:120b (Groq gpt-oss:20b fallback) scores relevance 0-10
   │
   └── Top-K Selection (default: 6)
 ```

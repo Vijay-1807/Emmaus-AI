@@ -2,7 +2,7 @@
 
 **Multimodal Agentic Knowledge & Analysis Platform**
 
-Upload documents, datasets, images, handwritten pages, or audio. Ask a question. Emmaus AI intelligently combines RAG, data analysis, vision/OCR, and agentic reasoning to produce verified, cited answers, charts, and reports.
+Upload documents, datasets, images, handwritten pages, or audio. Ask a question. Emmaus AI intelligently combines RAG, data analysis, vision/OCR, and agentic reasoning to produce verified, cited answers, charts, and reports. It also generates images from text via Cloudflare FLUX.1 Schnell - on the web and in the Telegram bot.
 
 **No login required.** Anonymous workspaces with browser-session persistence.
 
@@ -111,6 +111,7 @@ Fallback order: **Groq → Ollama → Mock**. Cerebras is disabled legacy config
 | Vision | Ollama (gemma4:31b) | Groq (qwen3.6-27b) | Mock | gemma4:31b → qwen/qwen3.6-27b |
 | Embedding | Jina | Local/Mock fallback | — | jina-embeddings-v5-omni-small (1024D) |
 | Speech-to-Text | Deepgram | Sarvam | Groq | nova-3 / saaras:v4 / whisper-large-v3-turbo |
+| Image Generation | Cloudflare Workers AI | — | — | @cf/black-forest-labs/flux-1-schnell (10k free neurons/day) |
 
 **STT chain**: Deepgram Nova-3 (primary) → Sarvam Saaras v4 (Indian-language fallback) → Groq Whisper Turbo (final fallback)
 
@@ -205,6 +206,37 @@ API Keys page or set `MEDIA_STORAGE=local`. This is a Cloudinary account/key
 permission issue, not an Emmaus application-code issue. Emmaus preserves
 uploads through local fallback while the key is being fixed.
 
+## Image Generation
+
+Text-to-image via Cloudflare Workers AI (`@cf/black-forest-labs/flux-1-schnell`):
+
+```env
+CLOUDFLARE_ACCOUNT_ID=your_account_id
+CLOUDFLARE_API_TOKEN=your_api_token
+CLOUDFLARE_IMAGE_MODEL=@cf/black-forest-labs/flux-1-schnell
+```
+
+- Web: inline Image Gen panel (prompt → image, zoomable preview, download, history)
+- Telegram: `/generate <prompt>`, plus plain-text image wishes (`draw me a cat`) generate directly
+- Free tier: 10,000 neurons/day, no credit card (~58 full-res images/day)
+
+## Telegram Bot
+
+Live bot: [@EmmausAIBot](https://t.me/EmmausAIBot). Each chat auto-gets its own user + workspace.
+
+| Command | What it does |
+|---------|--------------|
+| `/start` | Welcome + workspace setup |
+| `/new` | Fresh chat (clears conversation memory) |
+| `/stop` | Cancel a running investigation |
+| `/clear` | Wipe all workspace data (docs, datasets, history) |
+| `/history` | Last 5 investigations |
+| `/status` | Docs / datasets / media (+storage) / conversations |
+| `/generate <prompt>` | Generate an image with AI |
+| `/help` | Full help |
+
+Setup: create the bot with [@BotFather](https://t.me/BotFather), set `TELEGRAM_BOT_TOKEN` + `TELEGRAM_WEBHOOK_SECRET`, then register with `uv run python scripts/set_telegram_webhook.py https://<api-host>/api/telegram/webhook`. Polish the profile with `/setname`, `/setabouttext`, `/setdescription`, `/setuserpic`.
+
 ## Quick Start
 
 ### Backend
@@ -246,7 +278,8 @@ docker-compose up
 - **Streaming**: SSE-based real-time response streaming
 - **Observability**: Full Langfuse tracing across retrieval, reranking, and evaluation
 - **Job queue**: MongoDB-backed durable queue with worker process
-- **Telegram bot**: Full Telegram integration with webhook validation
+- **Telegram bot**: Full Telegram integration with webhook validation, one-time keyboard, /new /stop /clear /history /status /generate /help, image requests that generate directly, typing indicator, citations
+- **Image generation**: Text-to-image via Cloudflare Workers AI FLUX.1 Schnell (free tier), inline web UI with zoomable preview + download, Telegram /generate and plain-text image wishes
 - **Evaluation harness**: seed cases, seed from recent chats, run hybrid benchmarks, inspect metrics in Settings
 
 ## Resilience

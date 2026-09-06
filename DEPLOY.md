@@ -117,6 +117,9 @@ LANGFUSE_PUBLIC_KEY=your_langfuse_public_key
 LANGFUSE_SECRET_KEY=your_langfuse_secret_key
 SARVAM_API_KEY=your_sarvam_key
 DEEPGRAM_API_KEY=your_deepgram_key
+CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
+CLOUDFLARE_API_TOKEN=your_cloudflare_api_token
+CLOUDFLARE_IMAGE_MODEL=@cf/black-forest-labs/flux-1-schnell
 ```
 
 5. Deploy (takes ~3 minutes)
@@ -205,7 +208,9 @@ The Bot API is 100% free with no usage charges.
    `uv run python scripts/set_telegram_webhook.py https://<your-render-api-host>/api/telegram/webhook`
 5. Open your bot → `/start` → each Telegram chat auto-gets its own user + workspace
 
-What users get: full multimodal chat (text, docs, photos, voice), `/new` /history /status /help, typing indicator, per-answer *Sources* + *New chat* buttons, and burst protection (8 msgs/min, one run at a time) so free-tier Groq quota is safe.
+What users get: full multimodal chat (text, docs, photos, voice), `/new` /stop /clear /history /status /generate /help, typing indicator, per-answer *Sources* + *New chat* buttons, one-time reply keyboard, plain-text image wishes that generate directly, and burst protection (8 msgs/min, one run at a time) so free-tier Groq quota is safe.
+
+6. Polish the bot profile in **@BotFather**: `/setname` → `Emmaus AI`; `/setabouttext` → short line; `/setdescription` → feature + command list; `/setuserpic` → logo PNG.
 
 ---
 
@@ -220,6 +225,7 @@ Fallback order: Groq → Ollama → Mock
 | Fast tasks (classify, rewrite, rerank) | Ollama (gpt-oss:120b) | Groq | Mock | gpt-oss:120b → openai/gpt-oss-20b |
 | Speech-to-Text | Deepgram | Sarvam | Groq | nova-3 / saaras:v4 / whisper |
 | Embeddings | Jina | Local/Mock | — | jina-embeddings-v5-omni-small (1024D) |
+| Image generation | Cloudflare Workers AI | — | — | @cf/black-forest-labs/flux-1-schnell (10k free neurons/day) |
 
 ---
 
@@ -233,6 +239,8 @@ Fallback order: Groq → Ollama → Mock
 | `OLLAMA_API_KEY` | https://ollama.com → Keys |
 | `SARVAM_API_KEY` | https://api.sarvam.ai → Keys |
 | `DEEPGRAM_API_KEY` | https://console.deepgram.com → API Keys |
+| `CLOUDFLARE_ACCOUNT_ID` | https://dash.cloudflare.com → Workers AI |
+| `CLOUDFLARE_API_TOKEN` | https://dash.cloudflare.com → API Tokens |
 | `CLOUDINARY_*` | https://cloudinary.com → Dashboard |
 | `TELEGRAM_BOT_TOKEN` | @BotFather → /newbot |
 | `TELEGRAM_WEBHOOK_SECRET` | Generate a random secret locally |

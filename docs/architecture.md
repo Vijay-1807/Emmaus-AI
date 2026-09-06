@@ -13,24 +13,26 @@ FastAPI Backend (Render)
         │
         ├── LangGraph Orchestrator (8-node conditional pipeline)
         │       │
-        │       ├── transcribe  (audio → text via Groq Whisper)
-        │       ├── classify    (route to capabilities via LLM)
-        │       ├── rag         (multi-query retrieval + rerank)
-        │       ├── data        (typed pandas operations)
-        │       ├── vision      (Qwen 3.6 vision analysis)
+         │       ├── transcribe  (audio → text via Deepgram → Sarvam → Groq Whisper)
+         │       ├── classify    (route to capabilities via LLM)
+         │       ├── rag         (multi-query retrieval + rerank)
+         │       ├── data        (typed pandas operations)
+         │       ├── vision      (Qwen 3.6 vision / Gemma 4 fallback)
         │       ├── fuse        (combine all evidence)
         │       ├── verify      (LLM evidence sufficiency check)
         │       └── generate    (streamed final answer)
         │
-        ├── Model Router (Groq → Ollama → Mock fallback)
-        ├── Embedding Service (Jina 1024D → Local/Mock fallback)
-        ├── RAG Pipeline (Vector + Lexical + RRF + Rerank)
-        ├── Background Worker (MongoDB job queue)
-        └── Telegram Bot
+         ├── Model Router (Groq → Ollama → Mock fallback)
+         ├── Embedding Service (Jina 1024D → Local/Mock fallback)
+         ├── RAG Pipeline (Vector + Lexical + RRF + Rerank)
+         ├── Image Generation (Cloudflare FLUX.1 Schnell)
+         ├── Background Worker (MongoDB job queue)
+         └── Telegram Bot (@EmmausAIBot, 8 commands + image intent routing)
 
-MongoDB Atlas (metadata + vector search + lexical search)
-Cloudinary (media storage)
-Langfuse (observability traces)
+ MongoDB Atlas (metadata + vector search + lexical search)
+ Cloudinary (media storage)
+ Langfuse (observability traces)
+ Cloudflare Workers AI (image generation)
 ```
 
 ## Data Flow

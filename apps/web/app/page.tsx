@@ -504,11 +504,7 @@ export default function HomePage() {
         <h2 className="font-editorial text-3xl font-medium tracking-[-0.02em] sm:text-4xl">
           Take Emmaus <em className="italic">anywhere</em>
         </h2>
-        <p className="mx-auto mt-2 max-w-xl text-[11px] leading-4 text-[#655f59] sm:mt-3 sm:text-sm sm:leading-5">
-          Investigate deeply on your laptop, get instant answers from
-          @EmmausAIBot in your pocket.
-        </p>
-        <div className="mx-auto mt-4 w-full max-w-3xl sm:mt-6">
+        <div className="mx-auto mt-3 w-full max-w-3xl sm:mt-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/device-shot.svg"
@@ -517,6 +513,17 @@ export default function HomePage() {
             loading="lazy"
           />
         </div>
+        <p className="mx-auto mt-3 max-w-xl whitespace-nowrap text-[11px] leading-4 text-[#655f59] sm:text-sm sm:leading-5">
+          Deep work on your laptop, quick answers from{" "}
+          <a
+            href="https://t.me/EmmausAIBot"
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-[#282521] underline decoration-[#b8a08a]/60 underline-offset-2 transition hover:text-black"
+          >
+            @EmmausAIBot
+          </a>.
+        </p>
         <a
           href="https://t.me/EmmausAIBot"
           target="_blank"

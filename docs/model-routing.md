@@ -32,6 +32,10 @@ In production, if all real providers fail, the system degrades to mock responses
 | Groq | qwen/qwen3.6-27b (vision) | $0.60 | $3.00 |
 | Ollama | gpt-oss:120b | $0.00 | $0.00 |
 
+## Image Generation (outside the router)
+
+Text-to-image runs on Cloudflare Workers AI (`@cf/black-forest-labs/flux-1-schnell`), not through the Groq/Ollama fallback chain. Free tier: 10,000 neurons/day, no credit card. Endpoints: `POST /api/image/generate`, `GET /api/image/status`.
+
 ## Retry Logic
 
 - 3 attempts per provider (then falls through to next provider in chain)

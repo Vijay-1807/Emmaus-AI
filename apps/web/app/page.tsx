@@ -499,12 +499,12 @@ export default function HomePage() {
         )}
       </section>
 
-      {/* Device showcase — Title, description, then image, no gaps */}
-      <section className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-4 text-center sm:px-8">
+      {/* Device showcase — Title, description, then image, tight line-by-line */}
+      <section className="relative z-10 mx-auto w-full max-w-5xl px-4 pt-2 pb-4 text-center sm:px-8 sm:pt-3">
         <h2 className="font-editorial text-3xl font-medium tracking-[-0.02em] sm:text-4xl">
           Take Emmaus <em className="italic">anywhere</em>
         </h2>
-        <p className="mx-auto mt-2 max-w-2xl text-[12px] leading-5 text-[#655f59] sm:mt-2 sm:text-[13px] sm:leading-5">
+        <p className="mx-auto mt-1.5 max-w-2xl text-[12px] leading-5 text-[#655f59] sm:text-[13px] sm:leading-5">
           Your documents, datasets, images and voice - answered together with
           citations, charts and AI visuals,{" "}
           <a
@@ -517,7 +517,7 @@ export default function HomePage() {
           </a>{" "}
           on Telegram or here on the web.
         </p>
-        <div className="mx-auto mt-3 w-full max-w-3xl">
+        <div className="mx-auto mt-2 w-full max-w-3xl sm:mt-2.5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/device-shot.svg"

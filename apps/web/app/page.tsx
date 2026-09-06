@@ -7,6 +7,7 @@ import {
   Camera,
   FileText,
   Mic,
+  Send,
   Sparkles,
   X,
 } from "lucide-react";
@@ -496,6 +497,29 @@ export default function HomePage() {
             </div>
           </div>
         )}
+      </section>
+
+      {/* Device showcase — laptop + phone mockups, Telegram bot link */}
+      <section className="relative z-10 mx-auto w-full max-w-5xl px-4 pb-4 text-center sm:px-8">
+        <h2 className="font-editorial text-2xl font-medium tracking-[-0.02em] sm:text-3xl">
+          Take Emmaus <em className="italic">anywhere</em>
+        </h2>
+        <p className="mx-auto mt-2 max-w-md text-[11px] leading-4 text-[#655f59] sm:text-sm sm:leading-5">
+          Full workspace on your laptop, quick answers in your pocket.
+        </p>
+        <div className="mx-auto mt-5 max-w-3xl overflow-hidden rounded-2xl border border-black/[.06] bg-white/50 shadow-[0_16px_60px_rgba(77,63,54,.12)] backdrop-blur-xl">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/device-shot.svg" alt="Emmaus AI on laptop and mobile" className="h-auto w-full" loading="lazy" />
+        </div>
+        <a
+          href="https://t.me/EmmausAIBot"
+          target="_blank"
+          rel="noreferrer"
+          className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#282521] px-5 py-2.5 text-sm font-medium text-white shadow-md transition hover:-translate-y-0.5 hover:bg-black"
+        >
+          <Send size={14} />
+          Chat with @EmmausAIBot on Telegram
+        </a>
       </section>
 
       {/* Footer on our own Pipo background */}

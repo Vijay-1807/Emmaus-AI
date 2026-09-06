@@ -178,6 +178,28 @@ test.describe("Core interactions", () => {
     await expect(page.locator("text=/2048/")).toHaveCount(0);
   });
 
+  test("Hero + composer stay centered (desktop and mobile)", async ({ page }) => {
+    for (const vp of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(vp);
+      await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+      const off = await page.evaluate(() => {
+        const vc = window.innerWidth / 2;
+        const cx = (el: Element | null) => {
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return Math.abs(r.left + r.width / 2 - vc);
+        };
+        const ta = document.querySelector("main textarea");
+        return {
+          h1: cx(document.querySelector("main h1")),
+          composer: cx(ta?.closest("div[class*='max-w-2xl']") ?? ta),
+        };
+      });
+      expect(off.h1 ?? 99).toBeLessThanOrEqual(2);
+      expect(off.composer ?? 99).toBeLessThanOrEqual(2);
+    }
+  });
+
   test("Image Gen panel opens on mobile viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });

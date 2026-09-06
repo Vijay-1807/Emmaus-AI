@@ -112,7 +112,7 @@ export default function SiteFooter() {
       {/* Bottom bar */}
       <div className="pt-2 md:pt-3 border-t border-white/10 flex flex-col md:flex-row items-center justify-between gap-1.5 md:gap-3">
         <p className="text-[10px] uppercase tracking-widest opacity-50">
-          Curated by @Vijay-1807
+          Curated by @Bontha Vijay
         </p>
         <div className="flex items-center gap-4">
           <span className="text-[10px] uppercase tracking-widest opacity-50">Join the Journey:</span>

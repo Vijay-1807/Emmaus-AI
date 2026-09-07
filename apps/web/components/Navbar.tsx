@@ -35,7 +35,7 @@ export default function Navbar() {
       await ensureAnonymousSession();
       const ws = await apiFetch<Workspace>("/api/workspaces", {
         method: "POST",
-        body: JSON.stringify({ name: "New Workspace" }),
+        body: JSON.stringify({ name: "New investigation" }),
       });
       localStorage.setItem("vedax_workspace_id", ws.id);
       window.dispatchEvent(new CustomEvent("vedax:workspaces-changed"));
@@ -77,7 +77,7 @@ export default function Navbar() {
           disabled={creating}
           className="rounded-full bg-white/90 px-4 py-1.5 text-xs font-bold text-black transition hover:bg-white disabled:opacity-50"
         >
-          {creating ? "…" : "New"}
+          {creating ? "…" : (<><span className="hidden sm:inline">New investigation</span><span className="sm:hidden">New</span></>)}
         </button>
 
         {/* Mobile burger — morphs to X in sync with the drawer */}

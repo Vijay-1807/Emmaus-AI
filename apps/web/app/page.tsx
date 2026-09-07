@@ -245,7 +245,7 @@ export default function HomePage() {
       const dataset = await apiFetch<Dataset>(`/api/datasets/upload?workspace_id=${wsId}`, { method: "POST", body: form });
       updateProgress(file, { stage: "processing", progress: 55 });
       await waitForSource("datasets", wsId, dataset.id, file);
-      return null;
+      return { id: dataset.id, kind: "dataset" };
     }
     if (file.type.startsWith("image/") || file.type.startsWith("audio/")) {
       const media = await apiFetch<MediaAsset>(`/api/media/upload?workspace_id=${wsId}`, {
@@ -308,7 +308,9 @@ export default function HomePage() {
         .filter((m): m is { id: string; kind: string } => Boolean(m));
       const attachmentIds = [
         ...mentionedIds,
-        ...metas.filter((m) => m.kind === "image" || m.kind === "document").map((m) => m.id),
+        // Everything except audio attaches to this question (backend scopes
+        // RAG/vision/data by these IDs); audio rides audioMediaId instead.
+        ...metas.filter((m) => m.kind !== "audio").map((m) => m.id),
       ];
       const audioMediaId = metas.find((m) => m.kind === "audio")?.id;
       localStorage.setItem(
@@ -422,6 +424,11 @@ export default function HomePage() {
             {pendingUpload && (
               <p className="px-1 pb-1 text-[11px] text-[#8d8780]">
                 Uploading attachments… send unlocks at 100%.
+              </p>
+            )}
+            {files.some((f) => /\.(csv|xlsx?)$/i.test(f.name)) && (
+              <p className="px-1 pb-1 text-[11px] text-[#8d8780]">
+                Spreadsheets attach to this question and stay in your workspace.
               </p>
             )}
 

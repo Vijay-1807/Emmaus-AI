@@ -3,7 +3,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -21,6 +21,7 @@ from app.api import (
     telegram,
     workspaces,
 )
+from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.core.db import connect_db, close_db
 from app.core.logging import configure_logging
@@ -52,11 +53,18 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # Public Swagger/OpenAPI only outside production: the API surface is
+    # richer than anonymous users need, and Render's health check only
+    # needs /api/health (which stays minimal-but-open below).
+    is_prod = settings.environment == "production"
     app = FastAPI(
         title="Emmaus AI API",
         description="Multimodal Agentic Knowledge & Analysis Platform",
         version="0.1.0",
         lifespan=lifespan,
+        docs_url=None if is_prod else "/docs",
+        redoc_url=None if is_prod else "/redoc",
+        openapi_url=None if is_prod else "/openapi.json",
     )
     app.add_middleware(
         CORSMiddleware,
@@ -87,6 +95,8 @@ def create_app() -> FastAPI:
 
     @app.get(f"{prefix}/health")
     async def health():
+        # Minimal public liveness: no secrets here (names/booleans only),
+        # and the web Settings tab + status pill + Render all read this.
         from app.services.media_service import MediaService
 
         router = get_model_router()
@@ -107,7 +117,8 @@ def create_app() -> FastAPI:
     _health_cache_ttl: float = 30.0
 
     @app.get(f"{prefix}/health/detailed")
-    async def health_detailed():
+    async def health_detailed(user: dict = Depends(get_current_user)):
+        # Internal diagnostics: authenticated callers only.
         now = time.time()
         if _health_cache.get("data") and now - _health_cache.get("ts", 0) < _health_cache_ttl:
             return _health_cache["data"]

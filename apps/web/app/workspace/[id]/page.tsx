@@ -265,10 +265,11 @@ export default function WorkspacePage() {
     if (!text && pendingFiles.length === 0) return;
     if (sendingRef.current) return;
     sendingRef.current = true;
-    // Collect attachment IDs from uploaded chips
+    // Collect attachment IDs from uploaded chips (docs, images, datasets;
+    // audio rides separately). Backend scopes each node by these IDs.
     const chipAttachments = pendingFiles
       .map((f) => uploadedChips[chipKey(f)])
-      .filter((c) => c && (c.kind === "image" || c.kind === "document"))
+      .filter((c) => c && (c.kind === "image" || c.kind === "document" || c.kind === "dataset"))
       .map((c) => c.id);
     const chipAudio = pendingFiles
       .map((f) => uploadedChips[chipKey(f)])

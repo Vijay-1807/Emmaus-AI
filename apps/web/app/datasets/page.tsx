@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import PageShell from "@/components/PageShell";
-import { apiFetch } from "@/lib/api";
-import { clearStoredWorkspaceIdIf, ensureWorkspaceId, isNotFoundError } from "@/lib/workspace";
+import { apiFetch, friendlyError } from "@/lib/api";
+import { ensureWorkspaceId } from "@/lib/workspace";
 import { useWorkspaceId } from "@/lib/useWorkspaceId";
 import type { Dataset } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
@@ -27,22 +27,23 @@ export default function DatasetsPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadDatasets = useCallback(async () => {
-    if (!wsId) { setLoading(false); return; }
+    // Aggregate every workspace so items never hide behind a stale selection.
     setLoading(true);
     try {
-      const data = await apiFetch<Dataset[]>(`/api/datasets?workspace_id=${wsId}`);
-      setDatasets(data);
-    } catch (cause) {
-      if (isNotFoundError(cause)) {
-        clearStoredWorkspaceIdIf(wsId);
-        setWsId("");
-        setDatasets([]);
-      } else {
-        setError(cause instanceof Error ? cause.message : "Unable to load datasets.");
+      const workspaces = await apiFetch<import("@/lib/types").Workspace[]>("/api/workspaces");
+      const all: Dataset[] = [];
+      for (const ws of workspaces) {
+        try {
+          const data = await apiFetch<Dataset[]>(`/api/datasets?workspace_id=${ws.id}`);
+          all.push(...data);
+        } catch { /* skip */ }
       }
+      setDatasets(all);
+    } catch (cause) {
+      setError(friendlyError(cause).message);
     }
     setLoading(false);
-  }, [wsId, setWsId]);
+  }, []);
 
   useEffect(() => { loadDatasets(); }, [loadDatasets]);
 
@@ -64,18 +65,19 @@ export default function DatasetsPage() {
     setError("");
     try {
       await Promise.all(files.map((f) => uploadFile(id, f)));
-      const data = await apiFetch<Dataset[]>(`/api/datasets?workspace_id=${id}`);
-      setDatasets(data);
+      await loadDatasets();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Upload failed.");
+      setError(friendlyError(cause).message);
     }
     setUploading(false);
   }
 
   async function handleDelete(id: string) {
-    if (!wsId) return;
+    const target = datasets.find((d) => d.id === id);
+    const wid = target?.workspace_id || wsId;
+    if (!wid) return;
     try {
-      await apiFetch(`/api/datasets/${id}?workspace_id=${wsId}`, { method: "DELETE" });
+      await apiFetch(`/api/datasets/${id}?workspace_id=${wid}`, { method: "DELETE" });
       setDatasets((prev) => prev.filter((d) => d.id !== id));
       setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
     } catch { setError("Delete failed."); }
@@ -172,13 +174,8 @@ export default function DatasetsPage() {
         <div className="mb-4 flex items-start gap-2 rounded-2xl border border-red-200/60 bg-red-50/80 px-4 py-3 text-sm text-red-700 backdrop-blur">
           <X size={14} className="mt-0.5 shrink-0" />
           <span>{error}</span>
-          <button onClick={() => setError("")} className="ml-auto shrink-0 text-red-400 hover:text-red-600"><X size={12} /></button>
-        </div>
-      )}
-
-      {!wsId && !loading && (
-        <div className="mb-4 rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 backdrop-blur">
-          No workspace selected. Start an investigation from Home first, then manage datasets here.
+          <button onClick={() => { setError(""); void loadDatasets(); }} className="ml-auto shrink-0 rounded-full bg-[#282521] px-3 py-1 text-[11px] font-medium text-white transition hover:bg-black">Retry</button>
+          <button onClick={() => setError("")} className="shrink-0 text-red-400 hover:text-red-600"><X size={12} /></button>
         </div>
       )}
 

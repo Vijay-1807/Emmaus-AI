@@ -78,18 +78,20 @@ export default function DocumentsPage() {
     setError("");
     try {
       await Promise.all(files.map((f) => uploadFile(id, f)));
-      const data = await apiFetch<Document[]>(`/api/documents?workspace_id=${id}`);
-      setDocs(data);
+      await loadDocs();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Upload failed.");
+      setError(friendlyError(cause).message);
     }
     setUploading(false);
   }
 
   async function handleDelete(id: string) {
-    if (!wsId) return;
+    // Items span workspaces: delete against the item's own workspace.
+    const target = docs.find((d) => d.id === id);
+    const wid = target?.workspace_id || wsId;
+    if (!wid) return;
     try {
-      await apiFetch(`/api/documents/${id}?workspace_id=${wsId}`, { method: "DELETE" });
+      await apiFetch(`/api/documents/${id}?workspace_id=${wid}`, { method: "DELETE" });
       setDocs((prev) => prev.filter((d) => d.id !== id));
       setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
     } catch { setError("Delete failed."); }

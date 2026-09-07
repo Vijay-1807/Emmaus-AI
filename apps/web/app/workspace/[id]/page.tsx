@@ -52,6 +52,8 @@ export default function WorkspacePage() {
   const [gone, setGone] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState<number>(-1);
+  const [librarySources, setLibrarySources] = useState<import("@/lib/workspace").LibrarySource[]>([]);
+  const mentionDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Pending file attachments in chat input
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploadedChips, setUploadedChips] = useState<Record<string, { id: string; kind: string }>>({});
@@ -276,6 +278,23 @@ export default function WorkspacePage() {
       .find((c) => c?.kind === "audio")?.id;
     const finalAttachments = [...attachmentIds, ...chipAttachments];
     const finalAudioId = audioMediaId || chipAudio;
+    // Resolve @mentions from other workspaces: copy them in (same as Home).
+    const atTokens = text.match(/@([^\s]+(?:\s+[^\s]+)*)/g) || [];
+    for (const token of atTokens) {
+      const raw = token.slice(1).trim();
+      if (!raw) continue;
+      const match = librarySources.find((s) => s.filename.toLowerCase() === raw.toLowerCase())
+        ?? librarySources.find((s) => raw.toLowerCase().includes(s.filename.toLowerCase()))
+        ?? librarySources.find((s) => s.filename.toLowerCase().includes(raw.toLowerCase()));
+      if (!match || match.workspace_id === wsId) continue;
+      try {
+        const ws = await import("@/lib/workspace");
+        const newId = match.source_type === "dataset"
+          ? await ws.copyDatasetToWorkspace(match.workspace_id, match.id, wsId)
+          : await ws.copyDocumentToWorkspace(match.workspace_id, match.id, wsId);
+        if (newId && !finalAttachments.includes(newId)) finalAttachments.push(newId);
+      } catch { /* best-effort */ }
+    }
     // Clear chips
     setPendingFiles([]);
     setUploadedChips({});
@@ -411,13 +430,29 @@ export default function WorkspacePage() {
   }
 
   const allSources = [
-    ...documents.map((d) => ({ name: d.filename, type: "document" as const })),
-    ...datasets.map((ds) => ({ name: ds.filename, type: "dataset" as const })),
-    ...mediaList.map((m) => ({ name: m.filename, type: "media" as const })),
+    ...documents.map((d) => ({ name: d.filename, type: "document" as const, foreign: false })),
+    ...datasets.map((ds) => ({ name: ds.filename, type: "dataset" as const, foreign: false })),
+    ...mediaList.map((m) => ({ name: m.filename, type: "media" as const, foreign: false })),
+    // Cross-workspace library (same as Home): deduped, foreign-flagged.
+    ...librarySources
+      .filter((s) => s.workspace_id !== wsId)
+      .filter(
+        (s) =>
+          !documents.some((d) => d.filename === s.filename) &&
+          !datasets.some((d) => d.filename === s.filename) &&
+          !mediaList.some((m) => m.filename === s.filename)
+      )
+      .map((s) => ({
+        name: s.filename,
+        type: (s.source_type === "dataset" ? "dataset" : "document") as "document" | "dataset",
+        foreign: true,
+      })),
   ];
 
   const matchingSources = mentionQuery !== null
-    ? allSources.filter((s) => s.name.toLowerCase().includes(mentionQuery.toLowerCase()))
+    ? allSources
+        .filter((s) => s.name.toLowerCase().includes(mentionQuery.toLowerCase()))
+        .slice(0, 8)
     : [];
 
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -430,6 +465,13 @@ export default function WorkspacePage() {
       const q = textBeforeCursor.slice(atIndex + 1);
       setMentionQuery(q);
       setMentionIndex(atIndex);
+      if (mentionDebounce.current) clearTimeout(mentionDebounce.current);
+      mentionDebounce.current = setTimeout(async () => {
+        try {
+          const { listLibrarySources } = await import("@/lib/workspace");
+          setLibrarySources(await listLibrarySources());
+        } catch { /* ignore */ }
+      }, 120);
     } else {
       setMentionQuery(null);
     }
@@ -696,6 +738,11 @@ export default function WorkspacePage() {
           <div className="w-full rounded-[24px] border border-white/50 bg-white/40 p-1.5 shadow-[0_8px_40px_rgba(77,63,54,.12)] backdrop-blur-xl">
             <div className="rounded-[20px] border border-black/[.06] bg-[#fffdf8]/80 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,.9)]">
               {/* Floating @ mention suggestions */}
+              {mentionQuery !== null && matchingSources.length === 0 && (
+                <div className="mb-2 rounded-xl border border-black/[.08] bg-white px-3 py-2 text-xs text-[#8d8780]">
+                  No matching source - check spelling or upload it first.
+                </div>
+              )}
               {matchingSources.length > 0 && (
                 <div className="mb-2 max-h-36 overflow-y-auto rounded-xl border border-black/[.08] bg-white p-1 shadow-lg backdrop-blur-md">
                   <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -710,6 +757,11 @@ export default function WorkspacePage() {
                     >
                       <span>{source.type === "document" ? "📄" : source.type === "dataset" ? "📊" : "🖼️"}</span>
                       <span className="truncate font-medium text-gray-800">{source.name}</span>
+                      {source.foreign && (
+                        <span className="shrink-0 rounded-full bg-[#6366f1]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#6366f1]">
+                          library
+                        </span>
+                      )}
                       <span className="ml-auto text-[10px] text-gray-400 capitalize">{source.type}</span>
                     </button>
                   ))}

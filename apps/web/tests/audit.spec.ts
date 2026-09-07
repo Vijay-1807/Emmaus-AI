@@ -207,6 +207,14 @@ test.describe("Core interactions", () => {
     await expect(page.getByPlaceholder(/Describe an image/i)).toBeVisible({ timeout: 7000 });
   });
 
+  test("Connection status pill present on desktop and mobile", async ({ page }) => {
+    for (const vp of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(vp);
+      await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+      await expect(page.locator('a[title*="Backend connection"]').first()).toBeVisible({ timeout: 7000 });
+    }
+  });
+
   test("Footer links reachable", async ({ page }) => {
     await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("footer").getByText("THE MISSION").first()).toBeVisible();

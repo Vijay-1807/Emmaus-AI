@@ -16,10 +16,11 @@ import Navbar from "@/components/Navbar";
 import CameraCapture from "@/components/CameraCapture";
 import VoiceRecordModal from "@/components/VoiceRecordModal";
 import ImageGenerator from "@/components/ImageGenerator";
+import ConnectionStatus from "@/components/ConnectionStatus";
 import AttachmentChips, { chipKey } from "@/components/AttachmentChips";
 import SiteFooter from "@/components/SiteFooter";
 import type { UploadProgressValue } from "@/components/ui/upload-progress";
-import { apiFetch, ensureAnonymousSession } from "@/lib/api";
+import { apiFetch, ensureAnonymousSession, friendlyError } from "@/lib/api";
 import { maybeCompressImage } from "@/lib/media";
 import type { Document, Dataset, MediaAsset, Workspace } from "@/lib/types";
 import { formatDate } from "@/lib/utils";
@@ -36,6 +37,7 @@ export default function HomePage() {
   const [uploadProgress, setUploadProgress] = useState<Record<string, UploadProgressValue>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [sessionDown, setSessionDown] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState<Record<string, { id: string; kind: string }>>({});
@@ -45,14 +47,23 @@ export default function HomePage() {
   const [showImageGen, setShowImageGen] = useState(false);
   const filesRef = useRef<HTMLInputElement>(null);
 
+  async function initSession() {
+    setSessionDown(false);
+    try {
+      await ensureAnonymousSession();
+      await loadWorkspaces();
+    } catch {
+      setSessionDown(true);
+    }
+  }
+
   useEffect(() => {
-    ensureAnonymousSession().then(() => {
-      loadWorkspaces();
-    }).catch((e) => console.error("auth failed:", e));
+    void initSession();
 
     const onChanged = () => loadWorkspaces();
     window.addEventListener("vedax:workspaces-changed", onChanged);
     return () => window.removeEventListener("vedax:workspaces-changed", onChanged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadWorkspaces() {
@@ -306,7 +317,7 @@ export default function HomePage() {
       );
       router.push(`/workspace/${id}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to start the investigation.");
+      setError(friendlyError(cause).message);
       setBusy(false);
     }
   }
@@ -443,7 +454,7 @@ export default function HomePage() {
                 })()} />
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="hidden text-[10px] text-[#8d8780] sm:block">Groq &middot; 120B</span>
+                <ConnectionStatus />
                 <button
                   onClick={() => void launch()}
                   disabled={busy || pendingUpload || (!query.trim() && files.length === 0)}
@@ -456,6 +467,18 @@ export default function HomePage() {
             </div>
           </div>
         </div>
+
+        {sessionDown && (
+          <div role="alert" className="mt-3 flex items-center gap-3 rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-2.5 text-xs text-amber-800 backdrop-blur">
+            <span>Couldn't reach the server - you can still look around, but asking needs a connection.</span>
+            <button
+              onClick={() => void initSession()}
+              className="ml-auto shrink-0 rounded-full bg-[#282521] px-3 py-1 font-medium text-white transition hover:bg-black"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {error && <p role="alert" className="mt-3 rounded-full bg-red-950/85 px-4 py-1.5 text-xs text-white shadow-lg">{error}</p>}
 

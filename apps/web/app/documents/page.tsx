@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import PageShell from "@/components/PageShell";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, friendlyError } from "@/lib/api";
 import { clearStoredWorkspaceIdIf, ensureWorkspaceId, isNotFoundError } from "@/lib/workspace";
 import { maybeCompressImage } from "@/lib/media";
 import { useWorkspaceId } from "@/lib/useWorkspaceId";
@@ -52,7 +52,7 @@ export default function DocumentsPage() {
       }
       setDocs(allDocs);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to load documents.");
+      setError(friendlyError(cause).message);
     }
     setLoading(false);
   }, []);
@@ -186,7 +186,8 @@ export default function DocumentsPage() {
         <div className="mb-4 flex items-start gap-2 rounded-2xl border border-red-200/60 bg-red-50/80 px-4 py-3 text-sm text-red-700 backdrop-blur">
           <X size={14} className="mt-0.5 shrink-0" />
           <span>{error}</span>
-          <button onClick={() => setError("")} className="ml-auto shrink-0 text-red-400 hover:text-red-600"><X size={12} /></button>
+          <button onClick={() => { setError(""); void loadDocs(); }} className="ml-auto shrink-0 rounded-full bg-[#282521] px-3 py-1 text-[11px] font-medium text-white transition hover:bg-black">Retry</button>
+          <button onClick={() => setError("")} className="shrink-0 text-red-400 hover:text-red-600"><X size={12} /></button>
         </div>
       )}
 

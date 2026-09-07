@@ -3,7 +3,7 @@
  * can ever break regardless of hostname: localhost, 127.0.0.1, LAN IP).
  * Absolute backend URL only when deployed elsewhere (Vercel -> Render).
  */
-function getApiBase(): string {
+export function getApiBase(): string {
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
     if (host === "localhost" || host === "127.0.0.1" || host.startsWith("192.168.") || host.startsWith("10.")) {
@@ -156,4 +156,26 @@ export async function ensureAnonymousSession(): Promise<string> {
     console.error("anonymous session failed:", e);
   }
   throw new Error("Failed to create anonymous session");
+}
+
+/** User-safe error copy. Never show raw backend detail strings in the UI. */
+export type FriendlyKind = "session" | "network" | "auth" | "timeout" | "busy" | "unknown";
+
+export function friendlyError(err: unknown): { kind: FriendlyKind; message: string } {
+  if (err instanceof ApiError) {
+    if (err.status === 401)
+      return { kind: "auth", message: "Session expired - retrying. If this keeps happening, start fresh from Home." };
+    if (err.status === 404)
+      return { kind: "unknown", message: "That workspace is gone (deleted elsewhere). Starting fresh." };
+    if (err.status === 429)
+      return { kind: "busy", message: "Too many requests - wait a moment and try again." };
+    if (err.status >= 500)
+      return { kind: "unknown", message: "Server hiccup - your work is safe, try again." };
+    return { kind: "unknown", message: "Something didn't work - try again." };
+  }
+  if (err instanceof TypeError)
+    return { kind: "network", message: "Can't reach the server - check your connection." };
+  if (err instanceof Error && /timeout|timed out/i.test(err.message))
+    return { kind: "timeout", message: "Taking too long - the server may be waking up. Try again." };
+  return { kind: "unknown", message: "Something didn't work - try again." };
 }

@@ -496,6 +496,7 @@ async def get_or_create_link(chat_id: int, from_user: dict) -> dict:
     }
     try:
         await db.telegram_links.insert_one(link)
+        link["_is_new"] = True
         return link
     except DuplicateKeyError:
         # Another webhook delivery won the first-contact race. Remove only
@@ -680,10 +681,13 @@ async def handle_command(chat_id: int, link: dict, command: str, display_name: s
 
     if cmd == "/start":
         safe_name = re.sub(r"([*_`\[\]])", r"\\\1", (display_name or "").strip()[:30])
-        greeting = f"👋 Welcome to Emmaus AI{', ' + safe_name if safe_name else ''}!"
+        greeting = f"Welcome to Emmaus AI{', ' + safe_name if safe_name else ''}!"
+        text = WELCOME_TEXT.replace("Welcome to Emmaus AI", greeting, 1)
+        if link.get("_is_new"):
+            text += "\n\n_First visit can take ~30s while the servers wake up - just ask and stay here._"
         await send_message(
             chat_id,
-            WELCOME_TEXT.replace("👋 *Welcome to Emmaus AI*", greeting, 1),
+            text,
             reply_markup=persistent_keyboard(),
         )
         return True

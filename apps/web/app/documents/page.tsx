@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import PageShell from "@/components/PageShell";
 import { apiFetch, friendlyError } from "@/lib/api";
-import { clearStoredWorkspaceIdIf, ensureWorkspaceId, isNotFoundError } from "@/lib/workspace";
+import { ensureWorkspaceId } from "@/lib/workspace";
 import { maybeCompressImage } from "@/lib/media";
 import { useWorkspaceId } from "@/lib/useWorkspaceId";
 import type { Document } from "@/lib/types";

@@ -136,6 +136,7 @@ export default function ImageGenerator({ workspaceId, onImageGenerated }: ImageG
             className="group relative cursor-zoom-in overflow-hidden rounded-xl border border-black/[.08] bg-white/60"
             onClick={() => setLightboxImage(generatedImage.url)}
           >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={generatedImage.url} alt={prompt} className="w-full object-contain" style={{ maxHeight: 320 }} />
             <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/10">
               <ZoomIn size={20} className="text-white opacity-0 drop-shadow transition group-hover:opacity-80" />
@@ -167,6 +168,7 @@ export default function ImageGenerator({ workspaceId, onImageGenerated }: ImageG
               onClick={() => setGeneratedImage(img)}
               className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg border border-black/[.06] transition hover:border-[#b8a08a]/40"
             >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={img.url} alt={`Generated ${idx + 1}`} className="h-full w-full object-cover" />
             </button>
           ))}
@@ -216,6 +218,7 @@ export default function ImageGenerator({ workspaceId, onImageGenerated }: ImageG
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
           >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={lightboxImage}
               alt="Generated"

@@ -477,7 +477,7 @@ export default function HomePage() {
 
         {sessionDown && (
           <div role="alert" className="mt-3 flex items-center gap-3 rounded-2xl border border-amber-200/60 bg-amber-50/80 px-4 py-2.5 text-xs text-amber-800 backdrop-blur">
-            <span>Couldn't reach the server - you can still look around, but asking needs a connection.</span>
+            <span>Couldn&apos;t reach the server - you can still look around, but asking needs a connection.</span>
             <button
               onClick={() => void initSession()}
               className="ml-auto shrink-0 rounded-full bg-[#282521] px-3 py-1 font-medium text-white transition hover:bg-black"

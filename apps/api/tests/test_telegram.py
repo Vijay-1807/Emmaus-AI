@@ -207,3 +207,102 @@ def test_clean_answer_for_telegram_strips_model_artifacts():
 
 def test_clean_answer_for_telegram_preserves_plain_text():
     assert tg.clean_answer_for_telegram("Hello! How can I assist?") == "Hello! How can I assist?"
+
+
+def _mock_voice_stack(monkeypatch):
+    """Voice download + storage + transcription without network or disk."""
+
+    async def fake_download(file_id: str):
+        return (b"fake-ogg-bytes", "voice_note.ogg")
+
+    async def fake_transcribe(data: bytes, filename: str):
+        return {"text": "what is in this picture"}
+
+    class FakeMediaService:
+        async def upload(self, data, filename, workspace_id, kind):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                url=f"/media/{filename}",
+                public_id=f"ws/{filename}",
+                mode="local",
+                bytes_path=f"media/{filename}",
+            )
+
+    monkeypatch.setattr(tg, "download_file", fake_download)
+    monkeypatch.setattr("app.audio.transcriber.transcribe_audio", fake_transcribe)
+    monkeypatch.setattr(
+        "app.services.media_service.MediaService", FakeMediaService
+    )
+
+
+def make_voice(chat_id: int = 777):
+    return {
+        "message": {
+            "chat": {"id": chat_id},
+            "from": {"first_name": "Vijay"},
+            "voice": {"file_id": "voice-file-1"},
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_voice_without_caption_parks_and_asks(tg_outbox, monkeypatch):
+    import app.core.db as db_module
+
+    _mock_voice_stack(monkeypatch)
+
+    async def explode(**kwargs):
+        raise AssertionError("investigation must not run before the ask")
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(tg, "run_investigation", explode)
+    await tg.handle_update(make_voice(chat_id=2001))
+
+    texts = [
+        m["payload"].get("text", "")
+        for m in tg_outbox
+        if m["method"] == "sendMessage"
+    ]
+    assert any("Voice note received, Vijay" in t for t in texts)
+    assert any("what is in this picture" in t for t in texts)
+    assert any("What should I investigate" in t for t in texts)
+
+    link = await db_module._db.telegram_links.find_one({"telegram_chat_id": 2001})
+    assert link and link.get("pending_audio_id")
+
+
+@pytest.mark.asyncio
+async def test_followup_text_consumes_parked_audio(tg_outbox, monkeypatch):
+    import app.core.db as db_module
+
+    _mock_voice_stack(monkeypatch)
+    captured: dict = {}
+
+    async def fake_run(**kwargs):
+        captured.update(kwargs)
+        yield {
+            "type": "done",
+            "investigation": {
+                "answer": "The picture shows a cat.",
+                "id": "inv-voice-1",
+                "conversation_id": "conv-voice-1",
+            },
+        }
+
+    monkeypatch.setattr(tg, "run_investigation", fake_run)
+    await tg.handle_update(make_voice(chat_id=2002))
+    link = await db_module._db.telegram_links.find_one({"telegram_chat_id": 2002})
+    parked = link["pending_audio_id"]
+
+    await tg.handle_update(make_message("is it a cat", chat_id=2002))
+
+    assert captured.get("audio_media_id") == parked
+    link = await db_module._db.telegram_links.find_one({"telegram_chat_id": 2002})
+    assert not link.get("pending_audio_id")
+    texts = [
+        m["payload"].get("text", "")
+        for m in tg_outbox
+        if m["method"] == "sendMessage"
+    ]
+    assert any("picture shows a cat" in t for t in texts)

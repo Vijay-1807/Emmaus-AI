@@ -102,6 +102,26 @@ async def classify_node(state: InvestigationState) -> dict:
         sources.append(f"- document: {d['name']} ({d['type']})")
     for d in datasets:
         sources.append(f"- dataset: {d['name']} ({d['rows']} rows)")
+    # Attached photos must be visible to the classifier, otherwise a
+    # photo-only question routes nowhere and ends in "no evidence".
+    attached_images: list[str] = []
+    attachment_ids = state.get("attachment_ids") or []
+    if attachment_ids:
+        try:
+            media_cursor = db.media_assets.find(
+                {
+                    "_id": {"$in": attachment_ids},
+                    "workspace_id": state["workspace_id"],
+                    "kind": "image",
+                },
+                {"_id": 1, "filename": 1},
+            )
+            async for m in media_cursor:
+                attached_images.append(m.get("filename") or "image")
+        except Exception as exc:
+            logger.warning("classify attachment lookup failed: %s", exc)
+    for name in attached_images:
+        sources.append(f"- image: {name} (attached photo - analyze it directly)")
     if not sources:
         sources.append("- (none)")
     history_text = "\n".join(
@@ -130,6 +150,8 @@ async def classify_node(state: InvestigationState) -> dict:
         w in state["question"].lower() for w in ("how much", "how many", "trend", "revenue", "compare", "percentage", "average", "total", "growth", "decline", "increase", "decrease")
     ):
         capabilities.append("data")
+    if attached_images and "vision" not in capabilities:
+        capabilities.append("vision")
     if not capabilities and (documents or datasets):
         capabilities = ["rag"]
     events.emit(

@@ -106,7 +106,8 @@ WELCOME_TEXT = (
     "• \"Analyze this photo\"\n\n"
     "📎 *Tips:* Attach a file with a caption, use /generate <prompt> for AI images, "
     "or just describe one (\"draw me a cat\") and I'll create it.\n\n"
-    "Commands: /new  /stop  /clear  /history  /status  /generate  /help"
+    "Commands: /new  /stop  /clear  /history  /status  /generate  /help\n\n"
+    "_Built by Bontha Vijay - https://vijaybontha.vercel.app/_"
 )
 
 HELP_TEXT = (
@@ -564,8 +565,9 @@ async def extract_question(
         }
         await db.media_assets.insert_one(media)
         audio_media_id = media["_id"]
-        if not text:
-            text = transcript or "(Could not transcribe voice - please type your question)"
+        # Voice with no caption leaves text empty on purpose: the caller
+        # parks the audio and asks what to investigate (transcript stays
+        # on the media record for the ack message).
 
     for photo in (message.get("photo") or [])[-1:]:
         data, _ = await download_file(photo["file_id"])
@@ -725,7 +727,7 @@ async def handle_command(chat_id: int, link: dict, command: str, display_name: s
             return True
         await db.telegram_links.update_one(
             {"_id": link["_id"]},
-            {"$set": {"conversation_id": None, "last_investigation_id": None}},
+            {"$set": {"conversation_id": None, "last_investigation_id": None}, "$unset": {"pending_audio_id": ""}},
         )
         await send_message(chat_id, "💬 Fresh chat started - previous context cleared.")
         return True
@@ -752,7 +754,7 @@ async def handle_command(chat_id: int, link: dict, command: str, display_name: s
         invs = await db.investigations.delete_many({"workspace_id": ws})
         await db.telegram_links.update_one(
             {"_id": link["_id"]},
-            {"$set": {"conversation_id": None, "last_investigation_id": None}},
+            {"$set": {"conversation_id": None, "last_investigation_id": None}, "$unset": {"pending_audio_id": ""}},
         )
         total = docs.deleted_count + datasets.deleted_count + media.deleted_count + convs.deleted_count + invs.deleted_count
         await send_message(
@@ -789,11 +791,18 @@ async def handle_command(chat_id: int, link: dict, command: str, display_name: s
         media = await db.media_assets.count_documents({"workspace_id": workspace_id})
         convs = await db.conversations.count_documents({"workspace_id": workspace_id})
         try:
-            agg = await db.media_assets.aggregate([
-                {"$match": {"workspace_id": workspace_id}},
-                {"$group": {"_id": None, "total": {"$sum": "$size_bytes"}}},
-            ]).to_list(1)
-            total_bytes = (agg[0].get("total") if agg else 0) or 0
+            # Sum in Python: AsyncCollection.aggregate needs awaiting in this
+            # stack and behaves differently under test doubles - a find loop
+            # works identically everywhere.
+            total_bytes = 0
+            cursor = db.media_assets.find(
+                {"workspace_id": workspace_id}, {"size_bytes": 1}
+            )
+            async for m in cursor:
+                try:
+                    total_bytes += int(m.get("size_bytes") or 0)
+                except (TypeError, ValueError):
+                    pass
         except Exception:
             total_bytes = 0
         size_str = (
@@ -849,7 +858,7 @@ async def handle_callback(update: dict) -> None:
             return
         await db.telegram_links.update_one(
             {"_id": link["_id"]},
-            {"$set": {"conversation_id": None, "last_investigation_id": None}},
+            {"$set": {"conversation_id": None, "last_investigation_id": None}, "$unset": {"pending_audio_id": ""}},
         )
         await send_message(chat_id, "💬 Fresh chat started - previous context cleared.")
     elif data.startswith("sources:"):
@@ -933,9 +942,44 @@ async def handle_update(update: dict) -> None:
             return
         if not text:
             text = "Explain this."
-    except Exception as exc:
-        await send_message(chat_id, "⚠️ Could not process that attachment - please try again.")
+    except Exception:
+        await send_message(chat_id, "Attachment failed - please try again.")
         return
+
+    db = get_db()
+    voice_no_caption = bool(message.get("voice") or message.get("audio")) and not (
+        message.get("text") or message.get("caption") or ""
+    ).strip()
+    if audio_media_id and voice_no_caption and not attachment_ids:
+        # Voice note with no caption: park it and ask what to investigate
+        # instead of guessing. The next text message picks it up.
+        media = await db.media_assets.find_one({"_id": audio_media_id})
+        transcript = ((media or {}).get("transcript") or "").strip()
+        await db.telegram_links.update_one(
+            {"_id": link["_id"]}, {"$set": {"pending_audio_id": audio_media_id}}
+        )
+        raw_name = ((message.get("from") or {}).get("first_name") or "").strip()[:30]
+        safe_name = re.sub(r"([*_`\[\]])", r"\\\1", raw_name)
+        greeting = f"Voice note received, {safe_name}" if safe_name else "Voice note received"
+        preview = f' - you said: "{transcript[:200]}"' if transcript else ""
+        await send_message(
+            chat_id,
+            f"{greeting}{preview}.\n\nWhat should I investigate in it? Reply with your question.",
+        )
+        return
+
+    # A parked voice note is consumed by the next plain-text question.
+    # Fresh attachments supersede it.
+    pending_audio = link.get("pending_audio_id")
+    if pending_audio and not audio_media_id and not attachment_ids:
+        parked = await db.media_assets.find_one(
+            {"_id": pending_audio, "workspace_id": workspace_id}
+        )
+        if parked:
+            audio_media_id = pending_audio
+    await db.telegram_links.update_one(
+        {"_id": link["_id"]}, {"$unset": {"pending_audio_id": ""}}
+    )
 
     # Image-intent routing BEFORE the RAG lock: strong wishes generate
     # directly (seconds), weak ones investigate with a /generate hint.

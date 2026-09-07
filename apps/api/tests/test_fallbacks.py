@@ -80,6 +80,46 @@ async def test_vision_skips_on_demand_when_analysis_present(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_classify_routes_vision_for_attached_images(monkeypatch):
+    ws_id, media_id = "ws-vis-3", "med-vis-3"
+
+    class FakeRouter:
+        async def complete_json(self, messages, task=None, ctx=None):
+            return ({"capabilities": [], "intent": "question"}, None)
+
+    monkeypatch.setattr(graph, "get_model_router", lambda: FakeRouter())
+    await db_module._db.media_assets.insert_one(
+        {
+            "_id": media_id,
+            "workspace_id": ws_id,
+            "kind": "image",
+            "filename": "whiteboard.jpg",
+        }
+    )
+    out = await graph.classify_node(
+        {
+            "workspace_id": ws_id,
+            "question": "Explain this.",
+            "attachment_ids": [media_id],
+        }
+    )
+    assert "vision" in out["capabilities"]
+
+
+@pytest.mark.asyncio
+async def test_classify_without_sources_stays_empty(monkeypatch):
+    class FakeRouter:
+        async def complete_json(self, messages, task=None, ctx=None):
+            return ({"capabilities": [], "intent": "question"}, None)
+
+    monkeypatch.setattr(graph, "get_model_router", lambda: FakeRouter())
+    out = await graph.classify_node(
+        {"workspace_id": "ws-vis-4", "question": "Hi there."}
+    )
+    assert out["capabilities"] == []
+
+
+@pytest.mark.asyncio
 async def test_data_node_waits_for_processing_dataset(monkeypatch):
     ws_id, ds_id = "ws-data-1", "ds-data-1"
 

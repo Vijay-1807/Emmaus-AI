@@ -197,7 +197,12 @@ async def process_claimed_update(update_id: int, update: dict) -> None:
             message = update.get("message") or update.get("callback_query", {}).get("message", {})
             chat_id = message.get("chat", {}).get("id")
             if chat_id:
-                await send_message(chat_id, "❌ Something went wrong processing your message. Please try again.")
+                stage = update.get("_stage", "start")
+                await send_message(
+                    chat_id,
+                    f"Something went wrong ({stage}: {type(exc).__name__}). "
+                    "Please try again - if it repeats, send /stop then /new.",
+                )
         except Exception:
             pass
         await db.telegram_updates.update_one(
@@ -703,6 +708,7 @@ async def handle_command(chat_id: int, link: dict, command: str, display_name: s
                 "Usage: /generate <prompt>\n"
                 "Example: /generate A futuristic city at sunset\n\n"
                 "The image will be generated using FLUX.1 Schnell model.",
+                reply_markup=persistent_keyboard(),
             )
             return True
         
@@ -729,7 +735,8 @@ async def handle_command(chat_id: int, link: dict, command: str, display_name: s
             {"_id": link["_id"]},
             {"$set": {"conversation_id": None, "last_investigation_id": None}, "$unset": {"pending_audio_id": ""}},
         )
-        await send_message(chat_id, "💬 Fresh chat started - previous context cleared.")
+        await send_message(chat_id, "💬 Fresh chat started - previous context cleared.",
+            reply_markup=persistent_keyboard())
         return True
     if cmd == "/stop":
         cancelled = await _cancel_running(chat_id)
@@ -737,6 +744,7 @@ async def handle_command(chat_id: int, link: dict, command: str, display_name: s
         await send_message(
             chat_id,
             "⏹ Stopped the running investigation." if cancelled else "Nothing running - ask me anything!",
+            reply_markup=persistent_keyboard(),
         )
         return True
     if cmd == "/clear":
@@ -764,6 +772,7 @@ async def handle_command(chat_id: int, link: dict, command: str, display_name: s
             f"{media.deleted_count} media, {convs.deleted_count} conversations, "
             f"{invs.deleted_count} investigations.\n\n"
             f"Start fresh - upload a file or ask a question!",
+            reply_markup=persistent_keyboard(),
         )
         return True
     if cmd == "/history":
@@ -783,6 +792,7 @@ async def handle_command(chat_id: int, link: dict, command: str, display_name: s
             "🕘 *Recent investigations*\n\n"
             + ("\n".join(lines) if lines else "Nothing yet - ask me anything!")
             + ("\n\n💬 Ask again to revisit any topic. Use /clear to wipe history." if lines else ""),
+            reply_markup=persistent_keyboard(),
         )
         return True
     if cmd == "/status":
@@ -815,6 +825,7 @@ async def handle_command(chat_id: int, link: dict, command: str, display_name: s
             chat_id,
             f"📊 *Your workspace*\n\nDocuments: {docs}\nDatasets: {datasets}\n"
             f"Media: {media} ({size_str})\nConversations: {convs}",
+            reply_markup=persistent_keyboard(),
         )
         return True
     return False
@@ -911,22 +922,27 @@ async def handle_update(update: dict) -> None:
         return
     if message.get("chat", {}).get("type", "private") != "private":
         return  # Silently ignore group chats
+    update["_stage"] = "link"
     link = await get_or_create_link(chat_id, message.get("from", {}))
     workspace_id = link["workspace_id"]
+    update["_stage"] = "command"
 
     text = (message.get("text") or "").strip()
     if text.startswith("/"):
         display_name = (message.get("from") or {}).get("first_name", "")
         if await handle_command(chat_id, link, text, display_name=display_name):
             return
-        await send_message(chat_id, "Unknown command - I know /new, /stop, /clear, /history, /status, /generate and /help.")
+        await send_message(chat_id, "Unknown command - I know /new, /stop, /clear, /history, /status, /generate and /help.",
+            reply_markup=persistent_keyboard())
         return
 
+    update["_stage"] = "rate"
     limited = await check_rate_limit(link)
     if limited:
         await send_message(chat_id, limited)
         return
 
+    update["_stage"] = "extract"
     await send_action(chat_id, "typing")
     try:
         text, attachment_ids, audio_media_id = await extract_question(
@@ -995,6 +1011,7 @@ async def handle_update(update: dict) -> None:
                 await release_chat_lock(link["_id"], gen_token)
         return
 
+    update["_stage"] = "lock"
     lock_token = await claim_chat_lock(link["_id"])
     if not lock_token:
         # Force-clear stale locks older than 5 minutes so user isn't stuck forever
@@ -1005,12 +1022,16 @@ async def handle_update(update: dict) -> None:
             "lock_expires_at": {"$lt": now()},
         })
         if stale:
-            await release_chat_lock(link["_id"], stale.get("lock_token", ""))
-            lock_token = await claim_chat_lock(link["_id"])
+            try:
+                await release_chat_lock(link["_id"], stale.get("lock_token", ""))
+                lock_token = await claim_chat_lock(link["_id"])
+            except Exception:
+                logger.warning("stale lock clear failed", exc_info=True)
         if not lock_token:
             await send_message(chat_id, "⏳ Still working on your previous question - send /stop to cancel it, or try again in ~30s.")
             return
 
+    update["_stage"] = "investigate"
     stop_typing = asyncio.Event()
     typing_task = asyncio.create_task(_typing_loop(chat_id, stop_typing))
     final_answer = ""
@@ -1055,13 +1076,17 @@ async def handle_update(update: dict) -> None:
             logger.error("investigation failed: %s", exc, exc_info=True)
             final_answer = "❌ Something went wrong. Please try again."
     finally:
+        update["_stage"] = "cleanup"
         _RUNNING_TASKS.pop(chat_id, None)
         stop_typing.set()
         try:
             await asyncio.wait_for(typing_task, timeout=2.0)
         except (asyncio.TimeoutError, Exception):
             typing_task.cancel()
-        await release_chat_lock(link["_id"], lock_token)
+        try:
+            await release_chat_lock(link["_id"], lock_token)
+        except Exception:
+            logger.warning("lock release failed", exc_info=True)
     elapsed = (now() - start_time).total_seconds()
     answer_text = clean_answer_for_telegram(final_answer or "Something went wrong. Please try again.")
     if image_mode == "weak":
@@ -1071,11 +1096,19 @@ async def handle_update(update: dict) -> None:
         answer_text += "\n\n🎨 _Tip: set up image generation to create pictures directly with /generate <prompt>_"
     if elapsed > 5:
         answer_text += f"\n\n_Solved in {elapsed:.1f}s_"
-    await send_message(
-        chat_id,
-        answer_text,
-        reply_markup=answer_keyboard(investigation_id),
-    )
+    update["_stage"] = "reply"
+    try:
+        await send_message(
+            chat_id,
+            answer_text,
+            reply_markup=answer_keyboard(investigation_id),
+        )
+    except Exception:
+        logger.error("telegram answer delivery failed", exc_info=True)
+        try:
+            await telegram_request("sendMessage", {"chat_id": chat_id, "text": answer_text[:4000]})
+        except Exception:
+            pass
 
 
 async def webhook_info() -> dict:

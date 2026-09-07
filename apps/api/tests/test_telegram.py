@@ -209,6 +209,60 @@ def test_clean_answer_for_telegram_preserves_plain_text():
     assert tg.clean_answer_for_telegram("Hello! How can I assist?") == "Hello! How can I assist?"
 
 
+@pytest.mark.asyncio
+async def test_link_failure_reports_stage(tg_outbox, monkeypatch):
+    async def boom(chat_id, from_user):
+        raise ValueError("db down")
+
+    monkeypatch.setattr(tg, "get_or_create_link", boom)
+    await tg.process_claimed_update(777001, make_message("hi", chat_id=3001))
+    texts = [
+        m["payload"].get("text", "")
+        for m in tg_outbox
+        if m["method"] == "sendMessage"
+    ]
+    assert any("(link: ValueError)" in t for t in texts)
+
+
+@pytest.mark.asyncio
+async def test_keyboard_reattached_on_status(tg_outbox):
+    await tg.handle_update(make_message("/start", chat_id=3002))
+    await tg.handle_update(make_message("/status", chat_id=3002))
+    keyboards = [
+        m["payload"].get("reply_markup", {}).get("keyboard", [])
+        for m in tg_outbox
+        if m["method"] == "sendMessage"
+    ]
+    flat = [b.get("text", "") for kb in keyboards for row in kb for b in row]
+    assert "/status" in flat and "/help" in flat
+
+
+@pytest.mark.asyncio
+async def test_release_failure_still_answers(tg_outbox, monkeypatch):
+    async def fake_run(**kwargs):
+        yield {
+            "type": "done",
+            "investigation": {
+                "answer": "All good.",
+                "id": "inv-rel-1",
+                "conversation_id": "conv-rel-1",
+            },
+        }
+
+    async def bad_release(link_id, token):
+        raise RuntimeError("lock store down")
+
+    monkeypatch.setattr(tg, "run_investigation", fake_run)
+    monkeypatch.setattr(tg, "release_chat_lock", bad_release)
+    await tg.handle_update(make_message("is the sky blue", chat_id=3003))
+    texts = [
+        m["payload"].get("text", "")
+        for m in tg_outbox
+        if m["method"] == "sendMessage"
+    ]
+    assert any("All good." in t for t in texts)
+
+
 def _mock_voice_stack(monkeypatch):
     """Voice download + storage + transcription without network or disk."""
 

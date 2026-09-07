@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import PageShell from "@/components/PageShell";
 import { apiFetch, friendlyError } from "@/lib/api";
 import { ensureWorkspaceId } from "@/lib/workspace";
@@ -85,22 +85,59 @@ export default function DocumentsPage() {
     setUploading(false);
   }
 
-  async function handleDelete(id: string) {
-    // Items span workspaces: delete against the item's own workspace.
-    const target = docs.find((d) => d.id === id);
-    const wid = target?.workspace_id || wsId;
-    if (!wid) return;
+  // Collapse same-filename copies into one row (latest first) so a file
+  // uploaded or copied several times shows once, with a ×N badge.
+  const groups = useMemo(() => {
+    const map = new Map<string, Document[]>();
+    for (const d of docs) {
+      const arr = map.get(d.filename) ?? [];
+      arr.push(d);
+      map.set(d.filename, arr);
+    }
+    return [...map.values()].map((items) => {
+      const sorted = [...items].sort(
+        (a, b) => +new Date(b.created_at) - +new Date(a.created_at)
+      );
+      return {
+        key: sorted[0].filename,
+        latest: sorted[0],
+        count: items.length,
+        ids: items.map((d) => d.id),
+      };
+    });
+  }, [docs]);
+
+  async function deleteIds(ids: string[]) {
+    await Promise.all(
+      ids.map(async (id) => {
+        const target = docs.find((d) => d.id === id);
+        const wid = target?.workspace_id || wsId;
+        if (!wid) return;
+        await apiFetch(`/api/documents/${id}?workspace_id=${wid}`, { method: "DELETE" });
+      })
+    );
+    setDocs((prev) => prev.filter((d) => !ids.includes(d.id)));
+  }
+
+  async function handleDeleteGroup(key: string) {
+    const group = groups.find((g) => g.key === key);
+    if (!group) return;
+    if (group.count > 1 && !confirm(`Delete all ${group.count} copies of ${group.key}? This cannot be undone.`)) return;
+    setDeleting(true);
     try {
-      await apiFetch(`/api/documents/${id}?workspace_id=${wid}`, { method: "DELETE" });
-      setDocs((prev) => prev.filter((d) => d.id !== id));
-      setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      await deleteIds(group.ids);
+      setSelected((prev) => { const n = new Set(prev); n.delete(key); return n; });
     } catch { setError("Delete failed."); }
+    setDeleting(false);
   }
 
   async function deleteSelected() {
     if (!selected.size) return;
     setDeleting(true);
-    await Promise.all([...selected].map((id) => handleDelete(id)));
+    try {
+      const ids = groups.filter((g) => selected.has(g.key)).flatMap((g) => g.ids);
+      await deleteIds(ids);
+    } catch { setError("Delete failed."); }
     setSelected(new Set());
     setDeleting(false);
   }
@@ -108,20 +145,23 @@ export default function DocumentsPage() {
   async function deleteAll() {
     if (!docs.length || !confirm(`Delete all ${docs.length} documents? This cannot be undone.`)) return;
     setDeleting(true);
-    await Promise.all(docs.map((d) => handleDelete(d.id)));
+    try {
+      await deleteIds(docs.map((d) => d.id));
+    } catch { setError("Delete failed."); }
+    setSelected(new Set());
     setDeleting(false);
   }
 
-  function toggleSelect(id: string) {
+  function toggleSelect(key: string) {
     setSelected((prev) => {
       const n = new Set(prev);
-      if (n.has(id)) n.delete(id); else n.add(id);
+      if (n.has(key)) n.delete(key); else n.add(key);
       return n;
     });
   }
 
   function toggleAll() {
-    setSelected(selected.size === docs.length ? new Set() : new Set(docs.map((d) => d.id)));
+    setSelected(selected.size === groups.length ? new Set() : new Set(groups.map((g) => g.key)));
   }
 
   return (
@@ -212,14 +252,14 @@ export default function DocumentsPage() {
           {/* Bulk action bar */}
           <div className="flex items-center gap-3 border-b border-black/[.06] bg-white/40 px-4 py-2.5">
             <button onClick={toggleAll} className="flex items-center gap-1.5 text-xs text-[#655f59] hover:text-black">
-              {selected.size === docs.length && docs.length > 0 ? (
+              {selected.size === groups.length && groups.length > 0 ? (
                 <CheckSquare size={14} className="text-[#6366f1]" />
               ) : (
                 <Square size={14} />
               )}
-              {selected.size === docs.length && docs.length > 0 ? "Deselect all" : "Select all"}
+              {selected.size === groups.length && groups.length > 0 ? "Deselect all" : "Select all"}
             </button>
-            <span className="text-xs text-[#8d8780]">{docs.length} document{docs.length !== 1 ? "s" : ""}</span>
+            <span className="text-xs text-[#8d8780]">{groups.length} document{groups.length !== 1 ? "s" : ""}</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -235,14 +275,16 @@ export default function DocumentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {docs.map((doc) => (
+                {groups.map((g) => {
+                  const doc = g.latest;
+                  return (
                   <tr
-                    key={doc.id}
-                    className={`border-b border-black/[.04] transition last:border-0 ${selected.has(doc.id) ? "bg-[#6366f1]/[.07]" : "hover:bg-white/60"}`}
+                    key={g.key}
+                    className={`border-b border-black/[.04] transition last:border-0 ${selected.has(g.key) ? "bg-[#6366f1]/[.07]" : "hover:bg-white/60"}`}
                   >
                     <td className="px-4 py-3">
-                      <button onClick={() => toggleSelect(doc.id)}>
-                        {selected.has(doc.id) ? <CheckSquare size={15} className="text-[#6366f1]" /> : <Square size={15} className="text-[#8d8780]/50" />}
+                      <button onClick={() => toggleSelect(g.key)}>
+                        {selected.has(g.key) ? <CheckSquare size={15} className="text-[#6366f1]" /> : <Square size={15} className="text-[#8d8780]/50" />}
                       </button>
                     </td>
                     <td className="px-4 py-3">
@@ -269,6 +311,11 @@ export default function DocumentsPage() {
                         >
                           {doc.filename}
                         </button>
+                        {g.count > 1 && (
+                          <span className="shrink-0 rounded-full bg-black/[.06] px-1.5 py-0.5 text-[10px] font-medium text-[#655f59]">
+                            ×{g.count}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="hidden px-4 py-3 text-xs text-[#655f59] sm:table-cell">{doc.source_type}</td>
@@ -277,15 +324,16 @@ export default function DocumentsPage() {
                     <td className="hidden px-4 py-3 text-xs text-[#8d8780] md:table-cell">{formatDate(doc.created_at)}</td>
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => handleDelete(doc.id)}
+                        onClick={() => handleDeleteGroup(g.key)}
                         className="rounded-lg p-1.5 text-[#8d8780] transition hover:bg-red-50 hover:text-red-600"
-                        title="Delete document"
+                        title={g.count > 1 ? `Delete all ${g.count} copies` : "Delete document"}
                       >
                         <X size={13} />
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -97,6 +97,9 @@ async def copy_document(
     already = await db.documents.find_one({"workspace_id": target_workspace_id, "media.public_id": doc.get("media", {}).get("public_id")})
     if already:
         return {"document_id": already["_id"], "already_copied": True}
+    same_name = await db.documents.find_one({"workspace_id": target_workspace_id, "filename": doc.get("filename")})
+    if same_name:
+        return {"document_id": same_name["_id"], "already_copied": True}
     import copy as _copy
     new_id = uuid4().hex
     new_doc = _copy.deepcopy(doc)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import PageShell from "@/components/PageShell";
 import { apiFetch, friendlyError } from "@/lib/api";
 import { ensureWorkspaceId } from "@/lib/workspace";
@@ -72,21 +72,59 @@ export default function DatasetsPage() {
     setUploading(false);
   }
 
-  async function handleDelete(id: string) {
-    const target = datasets.find((d) => d.id === id);
-    const wid = target?.workspace_id || wsId;
-    if (!wid) return;
+  // Collapse same-filename copies into one card (latest first) so a file
+  // uploaded or copied several times shows once, with a ×N badge.
+  const groups = useMemo(() => {
+    const map = new Map<string, Dataset[]>();
+    for (const d of datasets) {
+      const arr = map.get(d.filename) ?? [];
+      arr.push(d);
+      map.set(d.filename, arr);
+    }
+    return [...map.values()].map((items) => {
+      const sorted = [...items].sort(
+        (a, b) => +new Date(b.created_at) - +new Date(a.created_at)
+      );
+      return {
+        key: sorted[0].filename,
+        latest: sorted[0],
+        count: items.length,
+        ids: items.map((d) => d.id),
+      };
+    });
+  }, [datasets]);
+
+  async function deleteIds(ids: string[]) {
+    await Promise.all(
+      ids.map(async (id) => {
+        const target = datasets.find((d) => d.id === id);
+        const wid = target?.workspace_id || wsId;
+        if (!wid) return;
+        await apiFetch(`/api/datasets/${id}?workspace_id=${wid}`, { method: "DELETE" });
+      })
+    );
+    setDatasets((prev) => prev.filter((d) => !ids.includes(d.id)));
+  }
+
+  async function handleDeleteGroup(key: string) {
+    const group = groups.find((g) => g.key === key);
+    if (!group) return;
+    if (group.count > 1 && !confirm(`Delete all ${group.count} copies of ${group.key}? This cannot be undone.`)) return;
+    setDeleting(true);
     try {
-      await apiFetch(`/api/datasets/${id}?workspace_id=${wid}`, { method: "DELETE" });
-      setDatasets((prev) => prev.filter((d) => d.id !== id));
-      setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      await deleteIds(group.ids);
+      setSelected((prev) => { const n = new Set(prev); n.delete(key); return n; });
     } catch { setError("Delete failed."); }
+    setDeleting(false);
   }
 
   async function deleteSelected() {
     if (!selected.size) return;
     setDeleting(true);
-    await Promise.all([...selected].map(handleDelete));
+    try {
+      const ids = groups.filter((g) => selected.has(g.key)).flatMap((g) => g.ids);
+      await deleteIds(ids);
+    } catch { setError("Delete failed."); }
     setSelected(new Set());
     setDeleting(false);
   }
@@ -94,20 +132,24 @@ export default function DatasetsPage() {
   async function deleteAll() {
     if (!datasets.length || !confirm(`Delete all ${datasets.length} datasets? This cannot be undone.`)) return;
     setDeleting(true);
-    await Promise.all(datasets.map((d) => handleDelete(d.id)));
+    try {
+      const ids = datasets.map((d) => d.id);
+      await deleteIds(ids);
+    } catch { setError("Delete failed."); }
+    setSelected(new Set());
     setDeleting(false);
   }
 
-  function toggleSelect(id: string) {
+  function toggleSelect(key: string) {
     setSelected((prev) => {
       const n = new Set(prev);
-      if (n.has(id)) n.delete(id); else n.add(id);
+      if (n.has(key)) n.delete(key); else n.add(key);
       return n;
     });
   }
 
   function toggleAll() {
-    setSelected(selected.size === datasets.length ? new Set() : new Set(datasets.map((d) => d.id)));
+    setSelected(selected.size === groups.length ? new Set() : new Set(groups.map((g) => g.key)));
   }
 
   return (
@@ -196,35 +238,37 @@ export default function DatasetsPage() {
           {/* Bulk select bar */}
           <div className="mb-3 flex items-center gap-3">
             <button onClick={toggleAll} className="flex items-center gap-1.5 text-xs text-[#655f59] hover:text-black">
-              {selected.size === datasets.length && datasets.length > 0 ? (
+              {selected.size === groups.length && groups.length > 0 ? (
                 <CheckSquare size={14} className="text-[#6366f1]" />
               ) : <Square size={14} />}
-              {selected.size === datasets.length && datasets.length > 0 ? "Deselect all" : "Select all"}
+              {selected.size === groups.length && groups.length > 0 ? "Deselect all" : "Select all"}
             </button>
-            <span className="text-xs text-[#8d8780]">{datasets.length} dataset{datasets.length !== 1 ? "s" : ""}</span>
+            <span className="text-xs text-[#8d8780]">{groups.length} dataset{groups.length !== 1 ? "s" : ""}</span>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {datasets.map((ds) => (
+            {groups.map((g) => {
+              const ds = g.latest;
+              return (
               <div
-                key={ds.id}
-                className={`relative rounded-2xl border p-5 backdrop-blur transition ${selected.has(ds.id) ? "border-[#6366f1]/40 bg-[#6366f1]/[.07] shadow-sm" : "border-black/[.06] bg-white/60 shadow-sm hover:bg-white/75"}`}
+                key={g.key}
+                className={`relative rounded-2xl border p-5 backdrop-blur transition ${selected.has(g.key) ? "border-[#6366f1]/40 bg-[#6366f1]/[.07] shadow-sm" : "border-black/[.06] bg-white/60 shadow-sm hover:bg-white/75"}`}
               >
                 {/* Checkbox */}
                 <button
-                  onClick={() => toggleSelect(ds.id)}
+                  onClick={() => toggleSelect(g.key)}
                   className="absolute left-3.5 top-3.5"
                 >
-                  {selected.has(ds.id)
+                  {selected.has(g.key)
                     ? <CheckSquare size={15} className="text-[#6366f1]" />
                     : <Square size={15} className="text-[#8d8780]/50 hover:text-[#655f59]" />}
                 </button>
 
                 {/* Delete X */}
                 <button
-                  onClick={() => handleDelete(ds.id)}
+                  onClick={() => handleDeleteGroup(g.key)}
                   className="absolute right-3 top-3 rounded-lg p-1 text-[#8d8780]/60 transition hover:bg-red-50 hover:text-red-500"
-                  title="Delete"
+                  title={g.count > 1 ? `Delete all ${g.count} copies` : "Delete"}
                 >
                   <X size={13} />
                 </button>
@@ -233,6 +277,11 @@ export default function DatasetsPage() {
                   <div className="flex items-center gap-2 mb-2">
                     <BarChart2 size={16} className="shrink-0 text-[#6366f1]" />
                     <h3 className="truncate text-sm font-semibold text-[#24231f]">{ds.filename}</h3>
+                    {g.count > 1 && (
+                      <span className="shrink-0 rounded-full bg-black/[.06] px-1.5 py-0.5 text-[10px] font-medium text-[#655f59]">
+                        ×{g.count}
+                      </span>
+                    )}
                   </div>
 
                   <div className="space-y-1 text-xs text-[#655f59]">
@@ -259,7 +308,8 @@ export default function DatasetsPage() {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

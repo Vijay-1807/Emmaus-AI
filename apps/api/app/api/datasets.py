@@ -102,6 +102,14 @@ async def copy_dataset(
     })
     if already:
         return {"dataset_id": already["_id"], "already_copied": True}
+
+    # Same filename already in target (re-uploaded copy elsewhere): reuse it.
+    same_name = await db.datasets.find_one({
+        "workspace_id": body.target_workspace_id,
+        "filename": ds.get("filename")
+    })
+    if same_name:
+        return {"dataset_id": same_name["_id"], "already_copied": True}
     
     # Check row count limit
     num_rows = ds.get("num_rows", 0)

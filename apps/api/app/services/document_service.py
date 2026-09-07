@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -62,6 +63,18 @@ async def create_document(
 ) -> dict:
     db = get_db()
     source_type = validate_upload(filename, len(data))
+    # Same exact file already here: reuse it instead of stacking duplicates.
+    content_sha256 = hashlib.sha256(data).hexdigest()
+    existing = await db.documents.find_one(
+        {
+            "workspace_id": workspace_id,
+            "filename": filename,
+            "content_sha256": content_sha256,
+            "status": {"$in": ["processing", "ready"]},
+        }
+    )
+    if existing:
+        return existing
     media = MediaService()
     resource_kind = {"image": "image", "audio": "audio", "document": "file"}[source_type]
     stored = await media.upload(data, filename, workspace_id, resource_kind)
@@ -71,6 +84,7 @@ async def create_document(
         "owner_id": owner_id,
         "filename": filename,
         "content_type": content_type or "application/octet-stream",
+        "content_sha256": content_sha256,
         "source_type": source_type,
         "status": "processing",
         "error": None,

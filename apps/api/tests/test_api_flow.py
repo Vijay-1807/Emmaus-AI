@@ -449,3 +449,99 @@ async def test_clear_workspace_and_storage_summary(client, auth_headers, workspa
     data2 = summary2.json()
     assert data2["documents"]["count"] == 0
     assert data2["datasets"]["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_dataset_reupload_returns_same_record(client, auth_headers, workspace):
+    csv_bytes = b"a,b\n1,2\n3,4\n"
+
+    async def upload():
+        return await client.post(
+            "/api/datasets/upload",
+            params={"workspace_id": workspace["id"]},
+            files={"file": ("dup.csv", csv_bytes, "text/csv")},
+            headers=auth_headers,
+        )
+
+    first = await upload()
+    assert first.status_code == 201, first.text
+    second = await upload()
+    assert second.status_code == 201, second.text
+    assert second.json()["id"] == first.json()["id"]
+
+    listing = await client.get(
+        "/api/datasets", params={"workspace_id": workspace["id"]}, headers=auth_headers
+    )
+    assert sum(1 for d in listing.json() if d["filename"] == "dup.csv") == 1
+
+
+@pytest.mark.asyncio
+async def test_dataset_same_name_new_content_creates_new_record(
+    client, auth_headers, workspace
+):
+    first = await client.post(
+        "/api/datasets/upload",
+        params={"workspace_id": workspace["id"]},
+        files={"file": ("evolving.csv", b"a\n1\n", "text/csv")},
+        headers=auth_headers,
+    )
+    second = await client.post(
+        "/api/datasets/upload",
+        params={"workspace_id": workspace["id"]},
+        files={"file": ("evolving.csv", b"a\n1\n2\n", "text/csv")},
+        headers=auth_headers,
+    )
+    assert first.status_code == 201 and second.status_code == 201
+    assert second.json()["id"] != first.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_document_reupload_returns_same_record(client, auth_headers, workspace):
+    content = b"same content twice"
+
+    async def upload():
+        return await client.post(
+            "/api/documents/upload",
+            params={"workspace_id": workspace["id"]},
+            files={"file": ("note.txt", content, "text/plain")},
+            headers=auth_headers,
+        )
+
+    first = await upload()
+    assert first.status_code == 201, first.text
+    second = await upload()
+    assert second.status_code == 201, second.text
+    assert second.json()["id"] == first.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_dataset_copy_twice_returns_already_copied(
+    client, auth_headers, workspace
+):
+    csv_bytes = b"x\n1\n"
+    upload = await client.post(
+        "/api/datasets/upload",
+        params={"workspace_id": workspace["id"]},
+        files={"file": ("moveme.csv", csv_bytes, "text/csv")},
+        headers=auth_headers,
+    )
+    assert upload.status_code == 201, upload.text
+    dataset_id = upload.json()["id"]
+
+    target = await client.post(
+        "/api/workspaces", json={"name": "copy-target"}, headers=auth_headers
+    )
+    assert target.status_code in (200, 201), target.text
+    target_id = target.json()["id"]
+
+    body = {
+        "source_workspace_id": workspace["id"],
+        "dataset_id": dataset_id,
+        "target_workspace_id": target_id,
+    }
+    first = await client.post("/api/datasets/copy", json=body, headers=auth_headers)
+    assert first.status_code == 200, first.text
+    second = await client.post("/api/datasets/copy", json=body, headers=auth_headers)
+    assert second.status_code == 200, second.text
+    assert second.json()["already_copied"] is True
+    assert second.json()["dataset_id"] == first.json()["dataset_id"]

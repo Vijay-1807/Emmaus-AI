@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import io
 import logging
 import uuid
@@ -91,6 +92,20 @@ async def create_dataset(
     if len(data) > settings.max_upload_bytes:
         raise ValueError(f"file exceeds {settings.max_upload_mb}MB limit")
 
+    # Same exact file already here (re-upload / double submit): reuse it
+    # instead of stacking duplicate records.
+    content_sha256 = hashlib.sha256(data).hexdigest()
+    existing = await db.datasets.find_one(
+        {
+            "workspace_id": workspace_id,
+            "filename": filename,
+            "content_sha256": content_sha256,
+            "status": {"$in": ["processing", "ready"]},
+        }
+    )
+    if existing:
+        return existing
+
     media = MediaService()
     stored = await media.upload(data, filename, workspace_id, "file")
     dataset = {
@@ -99,6 +114,7 @@ async def create_dataset(
         "owner_id": owner_id,
         "filename": filename,
         "content_type": content_type or "text/csv",
+        "content_sha256": content_sha256,
         "status": "processing",
         "error": None,
         "num_rows": 0,

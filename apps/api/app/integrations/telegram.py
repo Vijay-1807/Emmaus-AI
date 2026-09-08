@@ -108,7 +108,7 @@ WELCOME_TEXT = (
     "📎 *Tips:* Attach a file with a caption, use /generate <prompt> for AI images, "
     "or just describe one (\"draw me a cat\") and I'll create it.\n\n"
     "Commands: /new  /stop  /clear  /history  /status  /generate  /help\n\n"
-    "Built by @vijay_1807"
+    "Built by @vijay\_1807"
 )
 
 HELP_TEXT = (
@@ -290,6 +290,52 @@ def _chunk_message(text: str, limit: int = MAX_MESSAGE) -> list[str]:
     return parts
 
 
+def _markdown_to_html(chunk: str) -> str:
+    html_text = (
+        chunk.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+    # Convert Markdown bold/italic/code to HTML
+    html_text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html_text)
+    html_text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", html_text)
+    html_text = re.sub(r"`(.+?)`", r"<code>\1</code>", html_text)
+    # Unescape literal markers (\_ \* etc.) so they render as typed
+    html_text = re.sub(r"\\([*_`\[\]])", r"\1", html_text)
+    return html_text
+
+
+def _is_bad_request(exc: BaseException) -> bool:
+    """Telegram rejected the payload shape (bad entities/markup)."""
+    if isinstance(exc, TelegramApiError):
+        return exc.error_code == 400
+    if isinstance(exc, httpx.HTTPStatusError):
+        resp = exc.response
+        return resp is not None and resp.status_code == 400
+    return False
+
+
+async def _send_chunk(payload: dict, chunk: str) -> None:
+    try:
+        await telegram_request("sendMessage", payload)
+        return
+    except Exception as exc:
+        if not _is_bad_request(exc):
+            raise
+    # Markdown failed (or Telegram rejected entities over HTTP) - try
+    # HTML, then plain text. Always preserve reply_markup (JSON, not text).
+    payload["text"] = _markdown_to_html(chunk)
+    payload["parse_mode"] = "HTML"
+    try:
+        await telegram_request("sendMessage", payload)
+    except Exception as exc:
+        if not _is_bad_request(exc):
+            raise
+        payload["text"] = chunk
+        payload.pop("parse_mode", None)
+        await telegram_request("sendMessage", payload)
+
+
 async def send_message(
     chat_id: int, text: str, reply_markup: dict | None = None
 ) -> None:
@@ -298,31 +344,7 @@ async def send_message(
         payload: dict = {"chat_id": chat_id, "text": chunk, "parse_mode": "Markdown"}
         if reply_markup is not None and i == len(chunks) - 1:
             payload["reply_markup"] = reply_markup
-        try:
-            await telegram_request("sendMessage", payload)
-        except TelegramApiError as exc:
-            if exc.error_code not in (400,):
-                raise
-            # Markdown failed - try HTML fallback, then plain text.
-            # Always preserve reply_markup (buttons are JSON, not Markdown).
-            html_text = (
-                chunk.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-            )
-            # Convert Markdown bold/italic/code to HTML
-            html_text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html_text)
-            html_text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", html_text)
-            html_text = re.sub(r"`(.+?)`", r"<code>\1</code>", html_text)
-            payload["text"] = html_text
-            payload["parse_mode"] = "HTML"
-            try:
-                await telegram_request("sendMessage", payload)
-            except TelegramApiError:
-                # HTML also failed - send plain text, still keep buttons
-                payload["text"] = chunk
-                payload.pop("parse_mode", None)
-                await telegram_request("sendMessage", payload)
+        await _send_chunk(payload, chunk)
 
 
 async def send_action(chat_id: int, action: str = "typing") -> None:

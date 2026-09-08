@@ -463,6 +463,52 @@ def test_exc_detail_includes_status_code():
     assert tg._exc_detail(ValueError("x")) == "ValueError"
 
 
+def _http_error(status: int):
+    from types import SimpleNamespace
+
+    return httpx.HTTPStatusError(
+        f"HTTP {status}",
+        request=httpx.Request("POST", "https://api.telegram.org/x"),
+        response=SimpleNamespace(status_code=status, headers={}),
+    )
+
+
+@pytest.mark.asyncio
+async def test_http_400_falls_back_to_html(monkeypatch):
+    calls: list = []
+
+    async def fake_request(method, payload):
+        calls.append(dict(payload))
+        if len(calls) == 1:
+            raise _http_error(400)
+        return {"ok": True, "result": {}}
+
+    monkeypatch.setattr(tg, "telegram_request", fake_request)
+    await tg.send_message(7777, "hi *there*")
+    assert len(calls) == 2
+    assert calls[0].get("parse_mode") == "Markdown"
+    assert calls[1].get("parse_mode") == "HTML"
+
+
+@pytest.mark.asyncio
+async def test_http_403_raises_without_fallback(monkeypatch):
+    calls: list = []
+
+    async def fake_request(method, payload):
+        calls.append(dict(payload))
+        raise _http_error(403)
+
+    monkeypatch.setattr(tg, "telegram_request", fake_request)
+    with pytest.raises(httpx.HTTPStatusError):
+        await tg.send_message(7777, "hi")
+    assert len(calls) == 1
+
+
+def test_credit_handle_escaped_for_markdown():
+    assert "vijay\\_1807" in tg.WELCOME_TEXT
+    assert "@vijay_1807" not in tg.WELCOME_TEXT
+
+
 @pytest.mark.asyncio
 async def test_wake_notice_on_fresh_boot(tg_outbox, monkeypatch):
     import time

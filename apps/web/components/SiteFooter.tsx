@@ -49,8 +49,7 @@ const SOCIALS = [
   { label: "Email", href: `mailto:${CONTACT.email}`, Icon: Mail },
   { label: "LinkedIn", href: CONTACT.linkedin, Icon: Linkedin },
   { label: "GitHub", href: CONTACT.github, Icon: Github },
-  // Telegram bot slot — uncomment when live:
-  // { label: "Telegram", href: CONTACT.telegram, Icon: Send },
+  { label: "Telegram bot", href: "https://t.me/EmmausAIBot", Icon: Send },
 ];
 
 /** Liquid-glass footer (Lumina layout, Emmaus brand + your links, our Pipo bg). */
@@ -130,7 +129,6 @@ export default function SiteFooter() {
                 <Icon size={14} />
               </a>
             ))}
-            <Send size={14} className="opacity-25" aria-label="Telegram bot - coming soon" />
           </div>
         </div>
       </div>

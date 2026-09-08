@@ -461,3 +461,55 @@ def test_exc_detail_includes_status_code():
     )
     assert tg._exc_detail(exc) == "HTTPStatusError 503"
     assert tg._exc_detail(ValueError("x")) == "ValueError"
+
+
+@pytest.mark.asyncio
+async def test_wake_notice_on_fresh_boot(tg_outbox, monkeypatch):
+    import time
+
+    async def fake_run(**kwargs):
+        yield {
+            "type": "done",
+            "investigation": {
+                "answer": "Warm answer.",
+                "id": "inv-wake-1",
+                "conversation_id": "conv-wake-1",
+            },
+        }
+
+    monkeypatch.setattr(tg, "run_investigation", fake_run)
+    monkeypatch.setattr(tg, "BOOT_TIME", time.time())
+    await tg.handle_update(make_message("what is rag", chat_id=3004))
+    texts = [
+        m["payload"].get("text", "")
+        for m in tg_outbox
+        if m["method"] == "sendMessage"
+    ]
+    assert any("Waking up" in t for t in texts)
+    assert any("Warm answer." in t for t in texts)
+
+
+@pytest.mark.asyncio
+async def test_no_wake_notice_when_warm(tg_outbox, monkeypatch):
+    import time
+
+    async def fake_run(**kwargs):
+        yield {
+            "type": "done",
+            "investigation": {
+                "answer": "Warm answer.",
+                "id": "inv-wake-2",
+                "conversation_id": "conv-wake-2",
+            },
+        }
+
+    monkeypatch.setattr(tg, "run_investigation", fake_run)
+    monkeypatch.setattr(tg, "BOOT_TIME", time.time() - 3600)
+    await tg.handle_update(make_message("what is rag", chat_id=3005))
+    texts = [
+        m["payload"].get("text", "")
+        for m in tg_outbox
+        if m["method"] == "sendMessage"
+    ]
+    assert not any("Waking up" in t for t in texts)
+    assert any("Warm answer." in t for t in texts)

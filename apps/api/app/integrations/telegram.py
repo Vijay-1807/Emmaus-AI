@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -503,6 +504,22 @@ def _is_locked(link: dict) -> bool:
 # a runaway investigation instead of waiting out the 300s timeout.
 # Best-effort per process; the lock release below works cross-process anyway.
 _RUNNING_TASKS: dict[int, asyncio.Task] = {}
+
+
+# Set once when the server process finishes booting (see lifespan in main).
+# Lets the bot say "waking up" instead of leaving users in silence after
+# a Render cold start or redeploy. None in tests and before boot completes.
+BOOT_TIME: float | None = None
+BOOT_WINDOW_SECONDS = 90.0
+
+
+def mark_booted() -> None:
+    global BOOT_TIME
+    BOOT_TIME = time.time()
+
+
+def _just_booted() -> bool:
+    return BOOT_TIME is not None and (time.time() - BOOT_TIME) < BOOT_WINDOW_SECONDS
 
 
 async def _cancel_running(chat_id: int) -> bool:
@@ -1086,7 +1103,9 @@ async def handle_update(update: dict) -> None:
             await send_message(chat_id, "⏳ Still working on your previous question - send /stop to cancel it, or try again in ~30s.")
             return
 
-    update["_stage"] = "investigate"
+    if _just_booted():
+        await send_message(chat_id, "Waking up - servers were asleep. Your answer is coming (~30s).")
+
     stop_typing = asyncio.Event()
     typing_task = asyncio.create_task(_typing_loop(chat_id, stop_typing))
     final_answer = ""

@@ -46,6 +46,9 @@ async def lifespan(app: FastAPI):
     embedding_service = get_embedding_service()
     health = await embedding_service.health_check()
     logger.info("embedding backend: %s (ok=%s)", health.get("backend"), health.get("ok"))
+    from app.integrations import telegram as telegram_integration
+
+    telegram_integration.mark_booted()
     yield
     await close_db()
     logger.info("shutdown complete")

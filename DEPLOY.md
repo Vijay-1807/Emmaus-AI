@@ -210,6 +210,14 @@ The Bot API is 100% free with no usage charges.
 
 What users get: full multimodal chat (text, docs, photos, voice), `/new` /stop /clear /history /status /generate /help, typing indicator, per-answer *Sources* + *New chat* buttons, one-time reply keyboard, plain-text image wishes that generate directly, and burst protection (8 msgs/min, one run at a time) so free-tier Groq quota is safe.
 
+### Keep Render awake (cold starts)
+
+Render's free tier sleeps after ~15 min idle. The first message after sleep waits through a cold boot (Telegram retries delivery, so nothing is lost - but the user stares at silence). Fix it with a free pinger:
+
+1. Create a free monitor at UptimeRobot / Better Uptime / cron-job.org
+2. Point it at `https://<your-render-api-host>/api/health` every 10 minutes
+3. The bot additionally says "Waking up..." itself when it serves within 90s of a boot
+
 6. Polish the bot profile in **@BotFather**: `/setname` → `Emmaus AI`; `/setabouttext` → short line; `/setdescription` → feature + command list; `/setuserpic` → logo PNG.
 
 ---

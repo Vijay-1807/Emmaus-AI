@@ -1,5 +1,6 @@
 """Telegram bot unit tests (Bot API calls mocked, mongomock DB)."""
 
+import httpx
 import pytest
 
 import app.integrations.telegram as tg
@@ -360,3 +361,103 @@ async def test_followup_text_consumes_parked_audio(tg_outbox, monkeypatch):
         if m["method"] == "sendMessage"
     ]
     assert any("picture shows a cat" in t for t in texts)
+
+
+class _FakeTGResponse:
+    def __init__(self, status=200, payload=None, headers=None):
+        self.status_code = status
+        self._payload = payload if payload is not None else {"ok": True, "result": {}}
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"HTTP {self.status_code}",
+                request=httpx.Request("POST", "https://api.telegram.org/x"),
+                response=self,
+            )
+
+    def json(self):
+        return self._payload
+
+
+class _FakeTGClient:
+    def __init__(self, script, calls):
+        self._script = script
+        self.calls = calls
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def post(self, url, json=None):
+        self.calls.append(json)
+        item = self._script.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def _mock_tg_transport(monkeypatch, script, calls):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        tg, "get_settings", lambda: SimpleNamespace(telegram_bot_token="tok")
+    )
+    monkeypatch.setattr(
+        "httpx.AsyncClient", lambda timeout=None: _FakeTGClient(script, calls)
+    )
+
+
+@pytest.mark.asyncio
+async def test_http_429_retries_then_succeeds(monkeypatch):
+    calls: list = []
+    script = [
+        _FakeTGResponse(429, headers={"retry-after": "0"}),
+        _FakeTGResponse(200),
+    ]
+    _mock_tg_transport(monkeypatch, script, calls)
+    result = await tg.telegram_request("sendMessage", {"chat_id": 1, "text": "hi"})
+    assert result["ok"] is True
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_ok_false_429_retries(monkeypatch):
+    calls: list = []
+    script = [
+        _FakeTGResponse(
+            200,
+            {
+                "ok": False,
+                "error_code": 429,
+                "description": "Too Many Requests",
+                "parameters": {"retry_after": 1},
+            },
+        ),
+        _FakeTGResponse(200),
+    ]
+    _mock_tg_transport(monkeypatch, script, calls)
+    result = await tg.telegram_request("sendMessage", {"chat_id": 1, "text": "hi"})
+    assert result["ok"] is True
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_http_400_raises_immediately(monkeypatch):
+    calls: list = []
+    _mock_tg_transport(monkeypatch, [_FakeTGResponse(400)], calls)
+    with pytest.raises(httpx.HTTPStatusError):
+        await tg.telegram_request("sendMessage", {"chat_id": 1, "text": "hi"})
+    assert len(calls) == 1
+
+
+def test_exc_detail_includes_status_code():
+    req = httpx.Request("POST", "https://api.telegram.org/x")
+    exc = httpx.HTTPStatusError(
+        "bad", request=req, response=httpx.Response(503, request=req)
+    )
+    assert tg._exc_detail(exc) == "HTTPStatusError 503"
+    assert tg._exc_detail(ValueError("x")) == "ValueError"

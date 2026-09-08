@@ -131,24 +131,79 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# HTTP statuses worth one more try (flood control + Telegram/egress blips).
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def _retry_delay(response, attempt: int) -> float:
+    """Honor Telegram's Retry-After header, else exponential backoff."""
+    try:
+        retry_after = response.headers.get("retry-after") if response is not None else None
+        if retry_after is not None:
+            return min(float(retry_after), 60.0)
+    except (TypeError, ValueError):
+        pass
+    return min(2.0**attempt, 8.0)
+
+
+def _exc_detail(exc: BaseException) -> str:
+    """Short, secret-free failure fingerprint for user-facing reports."""
+    detail = type(exc).__name__
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status is not None:
+        detail += f" {status}"
+    return detail
+
+
 async def telegram_request(method: str, payload: dict) -> dict:
     settings = get_settings()
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN not configured")
+    url = f"{API_BASE}/bot{settings.telegram_bot_token}/{method}"
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            f"{API_BASE}/bot{settings.telegram_bot_token}/{method}", json=payload
-        )
-        response.raise_for_status()
-        data = response.json()
-        if not data.get("ok"):
-            parameters = data.get("parameters") or {}
-            raise TelegramApiError(
-                int(data.get("error_code", response.status_code)),
-                str(data.get("description", "Telegram request failed")),
-                parameters.get("retry_after"),
-            )
-        return data
+        for attempt in range(4):
+            try:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                code = exc.response.status_code if exc.response is not None else 0
+                if code not in _RETRYABLE_STATUS or attempt >= 3:
+                    raise
+                wait = _retry_delay(exc.response, attempt)
+                logger.warning(
+                    "telegram %s got HTTP %s, retrying in %.1fs", method, code, wait
+                )
+                await asyncio.sleep(wait)
+                continue
+            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                if attempt >= 3:
+                    raise
+                wait = _retry_delay(None, attempt)
+                logger.warning(
+                    "telegram %s network error (%s), retrying in %.1fs",
+                    method, type(exc).__name__, wait,
+                )
+                await asyncio.sleep(wait)
+                continue
+            data = response.json()
+            if not data.get("ok"):
+                parameters = data.get("parameters") or {}
+                code = int(data.get("error_code", response.status_code))
+                retry_after = parameters.get("retry_after")
+                if code == 429 and retry_after and attempt < 3:
+                    wait = min(float(retry_after), 60.0)
+                    logger.warning(
+                        "telegram %s flood-limited, retrying in %.1fs", method, wait
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise TelegramApiError(
+                    code,
+                    str(data.get("description", "Telegram request failed")),
+                    retry_after,
+                )
+            return data
+    raise RuntimeError("telegram request retry loop exited unexpectedly")
 
 
 async def download_file(file_id: str) -> tuple[bytes, str]:
@@ -200,7 +255,7 @@ async def process_claimed_update(update_id: int, update: dict) -> None:
                 stage = update.get("_stage", "start")
                 await send_message(
                     chat_id,
-                    f"Something went wrong ({stage}: {type(exc).__name__}). "
+                    f"Something went wrong ({stage}: {_exc_detail(exc)}). "
                     "Please try again - if it repeats, send /stop then /new.",
                 )
         except Exception:

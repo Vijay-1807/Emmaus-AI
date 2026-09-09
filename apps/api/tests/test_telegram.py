@@ -595,6 +595,7 @@ async def test_chart_table_sent_after_answer(tg_outbox, monkeypatch):
     ]
     assert any("Here it is." in t for t in texts)
     assert any("T" in t and "A" in t for t in texts)
+    assert any("emmaus-ai.vercel.app" in t for t in texts)
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,9 @@ logger = logging.getLogger("vedax.telegram")
 
 API_BASE = "https://api.telegram.org"
 MAX_MESSAGE = 4000
+# Public web app: workspaces are owner-scoped, so Telegram users get the
+# home page link (a deep workspace link would 404 in their browser).
+WEB_APP_URL = "https://emmaus-ai.vercel.app"
 
 # GPT-OSS citation tokens (【1†L2-L3】), bracketed refs, confidence lines,
 # and Unicode narrow spaces that Telegram renders oddly.
@@ -1233,11 +1236,19 @@ async def handle_update(update: dict) -> None:
         except Exception:
             pass
     # Charts have no native Telegram visual: deliver each as a compact table.
+    # The first table points at the web version for the interactive visual.
+    charts_sent = 0
     for chart in (result_charts or [])[:2]:
         table_text = format_chart_text(chart) if isinstance(chart, dict) else ""
         if table_text:
+            if charts_sent == 0:
+                table_text += (
+                    "\n\n_See the full Data Visualization with interactive "
+                    f"charts on the web version: {WEB_APP_URL}_"
+                )
             try:
                 await send_message(chat_id, table_text)
+                charts_sent += 1
             except Exception:
                 logger.warning("telegram chart table delivery failed", exc_info=True)
 

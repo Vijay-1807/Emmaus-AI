@@ -111,3 +111,36 @@ def test_result_to_text_truncates():
 
 def test_result_to_text_scalar():
     assert result_to_text(42) == "42"
+
+
+def test_compute_percent_string_cleaning():
+    # Exact production failure: "77.0%" strings must clean to numbers.
+    df = pd.DataFrame({"Percentage": ["77.0%", "100.0%", "64.0%"]})
+    step = ComputeStep(name="pct", expr="df['Percentage'].str.rstrip('%').astype(float)")
+    result = _apply_compute(df, step)
+    assert list(result["pct"]) == [77.0, 100.0, 64.0]
+
+
+def test_compute_chained_methods():
+    df = pd.DataFrame({"x": [None, 2.345, 3.0]})
+    step = ComputeStep(name="y", expr="df['x'].fillna(0).round(1).astype(float)")
+    result = _apply_compute(df, step)
+    assert list(result["y"]) == [0.0, 2.3, 3.0]
+
+
+def test_compute_str_predicate_still_works():
+    df = pd.DataFrame({"Company": ["Sunrise", "Moon"]})
+    step = ComputeStep(name="flag", expr="df['Company'].str.startswith('S')")
+    result = _apply_compute(df, step)
+    assert list(result["flag"]) == [True, False]
+
+
+def test_compute_still_blocks_dangerous_calls():
+    df = pd.DataFrame({"x": [1]})
+    for expr in (
+        "df['x'].apply(lambda v: v)",
+        "__import__('os').system('x')",
+        "df.to_csv('/tmp/x.csv')",
+    ):
+        with pytest.raises(ValueError):
+            _apply_compute(df, ComputeStep(name="bad", expr=expr))

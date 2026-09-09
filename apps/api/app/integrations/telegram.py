@@ -108,7 +108,7 @@ WELCOME_TEXT = (
     "📎 *Tips:* Attach a file with a caption, use /generate <prompt> for AI images, "
     "or just describe one (\"draw me a cat\") and I'll create it.\n\n"
     "Commands: /new  /stop  /clear  /history  /status  /generate  /help\n\n"
-    "Built by @vijay\_1807"
+    r"Built by @vijay\_1807"
 )
 
 HELP_TEXT = (

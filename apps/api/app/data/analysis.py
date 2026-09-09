@@ -25,6 +25,8 @@ _FILTER_OPS = {
 
 _SAFE_NAMES: set[str] = set()
 _SAFE_FUNCTIONS = {"abs": abs, "round": round, "min": min, "max": max, "sum": sum, "len": len}
+# Safe type constructors for astype() and conversions - no I/O, no imports.
+_SAFE_TYPES = {"float": float, "int": int, "str": str, "bool": bool}
 
 # Whitelist of safe DataFrame methods (no mutations, no I/O, no code execution)
 _SAFE_DF_METHODS = {
@@ -41,6 +43,7 @@ _SAFE_DF_METHODS = {
     "rename", "reindex", "transpose", "swaplevel",
     "compare", "equals", "align", "update",
     "applymap",  # Deprecated but still callable
+    "astype",  # Read-only dtype conversion, e.g. cleaned percent strings
 }
 
 # Block these DataFrame methods entirely (mutations, I/O, code execution)
@@ -101,6 +104,8 @@ def _safe_eval(expr: str, df: pd.DataFrame) -> Any:
                 return df[node.id]
             if node.id in _SAFE_FUNCTIONS:
                 return _SAFE_FUNCTIONS[node.id]
+            if node.id in _SAFE_TYPES:
+                return _SAFE_TYPES[node.id]
             raise ValueError(f"unknown name {node.id!r}")
         if isinstance(node, ast.Attribute):
             if isinstance(node.value, ast.Name) and node.value.id == "df":
@@ -124,6 +129,18 @@ def _safe_eval(expr: str, df: pd.DataFrame) -> Any:
                     if node.attr in allowed:
                         accessor = series.str if node.value.attr == "str" else series.dt
                         return getattr(accessor, node.attr)
+                raise ValueError(f"attribute access not allowed: {ast.dump(node)}")
+            # Computed receiver: df['col'].str.rstrip('%').astype(float),
+            # df['x'].fillna(0).round(2) — the inner call is validated
+            # recursively first, then the attribute must be whitelisted
+            # for the resulting Series/DataFrame.
+            if isinstance(node.value, (ast.Call, ast.BinOp, ast.Subscript, ast.UnaryOp)):
+                receiver = _eval_node(node.value)
+                if isinstance(receiver, (_pd.Series, _pd.DataFrame)):
+                    if node.attr in _SAFE_DF_METHODS:
+                        return getattr(receiver, node.attr)
+                    if isinstance(receiver, _pd.Series) and node.attr in ("str", "dt"):
+                        return receiver.str if node.attr == "str" else receiver.dt
                 raise ValueError(f"attribute access not allowed: {ast.dump(node)}")
             # Bare accessor object: df['col'].str
             if node.attr in ("str", "dt"):
@@ -191,8 +208,11 @@ def _safe_eval(expr: str, df: pd.DataFrame) -> Any:
                 func_name = node.func.id
             elif isinstance(node.func, ast.Attribute):
                 func_name = node.func.attr
-            # Check if function is safe
-            if func_name and func_name not in _SAFE_FUNCTIONS and func_name not in _ALLOWED_PD_FUNCTIONS:
+            # Check if function is safe: builtins, pandas top-level fns,
+            # whitelisted DataFrame/Series methods, and read-only str methods
+            # (e.g. df['col'].str.rstrip('%') - the accessor path above already
+            # validated the receiver, so reaching the call is allow-listed).
+            if func_name and func_name not in _SAFE_FUNCTIONS and func_name not in _ALLOWED_PD_FUNCTIONS and func_name not in _SAFE_DF_METHODS and func_name not in _SAFE_STR_METHODS and func_name not in _SAFE_TYPES:
                 raise ValueError(f"blocked function: {func_name!r} (not in whitelist)")
             # Validate arguments
             args = [_eval_node(a) for a in node.args]

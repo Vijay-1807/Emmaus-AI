@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.agents.graph import generate_node
+from app.agents.graph import GENERATE_SYSTEM, generate_node
 
 
 def _evidence():
@@ -70,3 +70,8 @@ async def test_generate_no_evidence_no_citations():
     out = await generate_node(state)
     assert out["answer"]
     assert out["citations"] == []
+
+
+def test_generate_system_bans_code_dumps_with_charts():
+    # Answers with attached charts must describe, never paste codeblobs.
+    assert "Never paste code blocks or data-URI image markdown" in GENERATE_SYSTEM

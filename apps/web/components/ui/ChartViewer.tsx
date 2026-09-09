@@ -38,7 +38,18 @@ const PALETTE = [
 ];
 
 export default function ChartViewer({ chart }: ChartViewerProps) {
-  const defaultMode = (chart.chart_type === "line" ? "line" : chart.chart_type === "pie" ? "pie" : chart.chart_type === "scatter" ? "scatter" : "bar");
+  // Scatter needs numeric X values; category labels (e.g. Metric names)
+  // would render as meaningless index ticks, so the tab hides for them.
+  const xIsNumeric = useMemo(() => {
+    const labels = chart.labels || [];
+    return (
+      labels.length > 0 &&
+      labels.every((l) => String(l).trim() !== "" && !Number.isNaN(Number(l)))
+    );
+  }, [chart]);
+  const defaultMode = (chart.chart_type === "scatter" && !xIsNumeric)
+    ? "bar"
+    : (chart.chart_type === "line" ? "line" : chart.chart_type === "pie" ? "pie" : chart.chart_type === "scatter" ? "scatter" : "bar");
   const [viewType, setViewType] = useState<"bar" | "line" | "area" | "pie" | "scatter" | "table">(defaultMode);
 
   // Transform labels + series into Recharts data format: [{ label: 'Q1', series1: 10, series2: 20 }, ...]
@@ -132,6 +143,7 @@ export default function ChartViewer({ chart }: ChartViewerProps) {
             <AreaIcon size={13} />
             <span className="hidden sm:inline">Area</span>
           </button>
+          {xIsNumeric && (
           <button
             onClick={() => setViewType("scatter")}
             className={`flex items-center gap-1 rounded-md px-2 py-1 transition ${
@@ -142,6 +154,7 @@ export default function ChartViewer({ chart }: ChartViewerProps) {
             <ScatterIcon size={13} />
             <span className="hidden sm:inline">Scatter</span>
           </button>
+          )}
           <button
             onClick={() => setViewType("table")}
             className={`flex items-center gap-1 rounded-md px-2 py-1 transition ${
@@ -284,7 +297,7 @@ export default function ChartViewer({ chart }: ChartViewerProps) {
               </Pie>
             </PieChart>
           </ResponsiveContainer>
-        ) : viewType === "scatter" ? (
+        ) : viewType === "scatter" && xIsNumeric ? (
           <ResponsiveContainer width="100%" height="100%">
             <ScatterChart margin={{ top: 10, right: 15, left: -10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" />

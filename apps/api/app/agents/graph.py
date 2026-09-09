@@ -57,6 +57,7 @@ Rules:
 - Be direct and structured. Use short paragraphs or bullets.
 - Use clean, restrained Markdown and ordinary hyphens. Avoid decorative Unicode symbols and em dashes.
 - State the answer once. Do not add a separate section that repeats the same answer.
+- When a chart spec accompanies the answer, describe its key insights in words and point at the chart. Never paste code blocks or data-URI image markdown - the chart renders itself.
 - End with a line: "Confidence: <low|medium|high> - <one short reason>"."""
 
 

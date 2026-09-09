@@ -648,12 +648,40 @@ async def generate_node(state: InvestigationState) -> dict:
     events.emit({"type": "node", "node": "generate", "detail": "composing answer"})
     router = get_model_router()
     answer = ""
+    # When a chart rides along, fenced code blocks are pure noise (the viewer
+    # renders the chart): suppress them from the live token stream, unless the
+    # user explicitly asked for code.
+    q_lower = (state.get("question") or "").lower()
+    strip_code = any(piece.get("chart") for piece in evidence) and not any(
+        w in q_lower
+        for w in ("code", "python", "script", "snippet", "matplotlib", "plotly", "seaborn")
+    )
+    in_fence = False
+    line_buf = ""
+
+    async def _emit(text: str) -> None:
+        nonlocal answer
+        answer += text
+        events.emit({"type": "token", "text": text})
+
     try:
         async for piece in router.stream(
             messages, task=TaskType.REASONING, temperature=0.2, max_tokens=3000, ctx=ctx
         ):
-            answer += piece
-            events.emit({"type": "token", "text": piece})
+            if not strip_code:
+                await _emit(piece)
+                continue
+            line_buf += piece
+            while "\n" in line_buf:
+                line, line_buf = line_buf.split("\n", 1)
+                if "```" in line:
+                    in_fence = not in_fence
+                    continue
+                if in_fence:
+                    continue
+                await _emit(line + "\n")
+        if strip_code and line_buf and not in_fence:
+            await _emit(line_buf)
     except Exception as exc:
         logger.error("generation failed: %s", exc)
         answer = (

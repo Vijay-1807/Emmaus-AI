@@ -75,3 +75,64 @@ async def test_generate_no_evidence_no_citations():
 def test_generate_system_bans_code_dumps_with_charts():
     # Answers with attached charts must describe, never paste codeblobs.
     assert "Never paste code blocks or data-URI image markdown" in GENERATE_SYSTEM
+
+
+def _chart_evidence():
+    ev = _evidence()
+    ev = [dict(ev[0], chart={
+        "chart_type": "bar",
+        "title": "T",
+        "labels": ["A"],
+        "series": [{"name": "v", "values": [1]}],
+    }), ev[1]]
+    return ev
+
+
+class _StreamRouter:
+    def __init__(self, pieces):
+        self._pieces = pieces
+        self.emitted = []
+
+    async def stream(self, *args, **kwargs):
+        for piece in self._pieces:
+            self.emitted.append(piece)
+            yield piece
+
+
+@pytest.mark.asyncio
+async def test_generate_strips_code_fences_when_charts_present(monkeypatch):
+    import app.agents.graph as graph
+
+    pieces = [
+        "Here is the chart:\n",
+        "```python\nimport pandas as pd\nprint(df)\n```\n",
+        "Done.\n",
+    ]
+    monkeypatch.setattr(graph, "get_model_router", lambda: _StreamRouter(pieces))
+    state = {
+        "question": "make a bar chart of Percentage by Metric",
+        "evidence": _chart_evidence(),
+        "history": [],
+        "verification": {"confidence": 0.9},
+    }
+    out = await generate_node(state)
+    assert "```" not in out["answer"]
+    assert "import pandas" not in out["answer"]
+    assert "Here is the chart:" in out["answer"]
+    assert "Done." in out["answer"]
+
+
+@pytest.mark.asyncio
+async def test_generate_keeps_code_when_user_asks(monkeypatch):
+    import app.agents.graph as graph
+
+    pieces = ["Here you go:\n", "```python\nprint(1)\n```\n"]
+    monkeypatch.setattr(graph, "get_model_router", lambda: _StreamRouter(pieces))
+    state = {
+        "question": "give me python code to plot this",
+        "evidence": _chart_evidence(),
+        "history": [],
+        "verification": {"confidence": 0.9},
+    }
+    out = await generate_node(state)
+    assert "```python" in out["answer"]

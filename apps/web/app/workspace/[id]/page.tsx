@@ -937,6 +937,9 @@ export default function WorkspacePage() {
 
 function cleanAssistantContent(content: string): string {
   return content
+    // Model-hallucinated data-URI image blobs (the interactive ChartViewer
+    // below renders real charts from structured specs - never this text).
+    .replace(/!\[[^\]]*\]\s*\(data:[^)]+\)/g, "")
     // Remove OpenAI / GPT-OSS citation tokens like 【1†L2-L3】, 【4†source】, 【1】, etc.
     .replace(/【[^】]*】/g, "")
     .replace(/\[\d+†[^\]]*\]/g, "")

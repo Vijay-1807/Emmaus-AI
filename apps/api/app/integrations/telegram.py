@@ -32,6 +32,9 @@ _CONFIDENCE_LINE_RE = re.compile(r"^\s*Confidence:\s*.*$", re.IGNORECASE | re.MU
 _CODE_FENCE_RE = re.compile(r"```[\s\S]*?```")
 _SOURCE_SECTION_RE = re.compile(r"\n+Sources?:\s*\n[\s\S]*$", re.IGNORECASE)
 _REFERENCE_SECTION_RE = re.compile(r"\n+References?:\s*\n[\s\S]*$", re.IGNORECASE)
+# Model-hallucinated data-URI image blobs (charts render natively on web,
+# and as data tables below on Telegram - never as raw text).
+_DATA_URI_IMAGE_RE = re.compile(r"!\[[^\]]*\]\s*\(data:[^)]+\)")
 
 
 # Strong: explicit creation verb + image noun ("draw me a cat" with a noun),
@@ -81,6 +84,7 @@ def clean_answer_for_telegram(text: str) -> str:
     cleaned = _SOURCE_SECTION_RE.sub("", cleaned)
     cleaned = _REFERENCE_SECTION_RE.sub("", cleaned)
     cleaned = _CODE_FENCE_RE.sub("", cleaned)
+    cleaned = _DATA_URI_IMAGE_RE.sub("", cleaned)
     cleaned = cleaned.replace("\u2014", "-").replace("\u2013", "-")
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
@@ -985,7 +989,7 @@ async def _collect_investigation(
     audio_media_id: str | None,
 ) -> dict:
     """Collect all events from run_investigation into a single result dict."""
-    result: dict = {"answer": "", "id": None, "conversation_id": conversation_id}
+    result: dict = {"answer": "", "id": None, "conversation_id": conversation_id, "charts": []}
     async for event in run_investigation(
         workspace_id=workspace_id,
         user_id=user_id,
@@ -998,9 +1002,30 @@ async def _collect_investigation(
             result["answer"] = event["investigation"]["answer"]
             result["id"] = event["investigation"].get("id")
             result["conversation_id"] = event["investigation"]["conversation_id"]
+            result["charts"] = event["investigation"].get("charts") or []
         elif event["type"] == "error":
             result["answer"] = event["message"]
     return result
+
+
+def _escape_md(text: str) -> str:
+    return re.sub(r"([*_`\[\]])", r"\\\1", str(text or "")[:80])
+
+
+def format_chart_text(chart: dict) -> str:
+    """Render a chart spec as a compact readable table for Telegram."""
+    labels = chart.get("labels") or []
+    series = chart.get("series") or []
+    if not labels or not series:
+        return ""
+    title = chart.get("title") or "Chart"
+    lines = [f"*{_escape_md(title)}*"]
+    values = series[0].get("values") or []
+    for label, value in list(zip(labels, values))[:12]:
+        lines.append(f"- {_escape_md(label)}: {value}")
+    if len(labels) > 12:
+        lines.append(f"_...and {len(labels) - 12} more rows_")
+    return "\n".join(lines)
 
 
 async def handle_update(update: dict) -> None:
@@ -1132,6 +1157,7 @@ async def handle_update(update: dict) -> None:
     typing_task = asyncio.create_task(_typing_loop(chat_id, stop_typing))
     final_answer = ""
     investigation_id: str | None = None
+    result_charts: list = []
     start_time = now()
     try:
         conversation_id = link.get("conversation_id")
@@ -1149,6 +1175,7 @@ async def handle_update(update: dict) -> None:
             result = await asyncio.wait_for(investigation_task, timeout=300)
             final_answer = result.get("answer", "")
             investigation_id = result.get("id")
+            result_charts = result.get("charts") or []
             new_conversation = result.get("conversation_id")
             if new_conversation and new_conversation != conversation_id:
                 db = get_db()
@@ -1205,6 +1232,14 @@ async def handle_update(update: dict) -> None:
             await telegram_request("sendMessage", {"chat_id": chat_id, "text": answer_text[:4000]})
         except Exception:
             pass
+    # Charts have no native Telegram visual: deliver each as a compact table.
+    for chart in (result_charts or [])[:2]:
+        table_text = format_chart_text(chart) if isinstance(chart, dict) else ""
+        if table_text:
+            try:
+                await send_message(chat_id, table_text)
+            except Exception:
+                logger.warning("telegram chart table delivery failed", exc_info=True)
 
 
 async def webhook_info() -> dict:

@@ -509,6 +509,94 @@ def test_credit_handle_escaped_for_markdown():
     assert "@vijay_1807" not in tg.WELCOME_TEXT
 
 
+def test_clean_answer_strips_data_uri_image_blob():
+    blob = "![Bar chart](data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==)"
+    assert tg.clean_answer_for_telegram(f"Here is your chart.\n{blob}\nDone.") == (
+        "Here is your chart.\n\nDone."
+    )
+    multiline = "Intro\n![alt]\n(data:image/png;base64,AAAA)\nOutro"
+    cleaned = tg.clean_answer_for_telegram(multiline)
+    assert "base64" not in cleaned
+    assert "Intro" in cleaned and "Outro" in cleaned
+
+
+def test_format_chart_text_renders_table():
+    chart = {
+        "title": "Percentage by Metric",
+        "labels": ["Household Coverage", "Work Days Achievement"],
+        "series": [{"name": "pct_num", "values": [77.0, 100.0]}],
+    }
+    text = tg.format_chart_text(chart)
+    assert "Percentage by Metric" in text
+    assert "Household Coverage" in text and "77.0" in text
+
+
+def test_format_chart_text_empty_or_truncated():
+    assert tg.format_chart_text({}) == ""
+    assert tg.format_chart_text({"labels": [], "series": []}) == ""
+    chart = {
+        "title": "Big",
+        "labels": [f"row-{i}" for i in range(15)],
+        "series": [{"name": "v", "values": list(range(15))}],
+    }
+    text = tg.format_chart_text(chart)
+    assert "row-11" in text and "row-14" not in text
+    assert "3 more rows" in text
+
+
+@pytest.mark.asyncio
+async def test_collect_captures_charts(monkeypatch):
+    charts = [{"title": "T", "labels": ["A"], "series": [{"name": "v", "values": [1]}]}]
+
+    async def fake_run(**kwargs):
+        yield {
+            "type": "done",
+            "investigation": {
+                "answer": "ok",
+                "id": "inv-c",
+                "conversation_id": "conv-c",
+                "charts": charts,
+            },
+        }
+
+    monkeypatch.setattr(tg, "run_investigation", fake_run)
+    result = await tg._collect_investigation(
+        workspace_id="ws",
+        user_id="u",
+        question="q",
+        conversation_id=None,
+        attachment_ids=[],
+        audio_media_id=None,
+    )
+    assert result["charts"] == charts
+
+
+@pytest.mark.asyncio
+async def test_chart_table_sent_after_answer(tg_outbox, monkeypatch):
+    charts = [{"title": "T", "labels": ["A"], "series": [{"name": "v", "values": [1]}]}]
+
+    async def fake_run(**kwargs):
+        yield {
+            "type": "done",
+            "investigation": {
+                "answer": "Here it is.",
+                "id": "inv-t",
+                "conversation_id": "conv-t",
+                "charts": charts,
+            },
+        }
+
+    monkeypatch.setattr(tg, "run_investigation", fake_run)
+    await tg.handle_update(make_message("show chart", chat_id=3006))
+    texts = [
+        m["payload"].get("text", "")
+        for m in tg_outbox
+        if m["method"] == "sendMessage"
+    ]
+    assert any("Here it is." in t for t in texts)
+    assert any("T" in t and "A" in t for t in texts)
+
+
 @pytest.mark.asyncio
 async def test_wake_notice_on_fresh_boot(tg_outbox, monkeypatch):
     import time

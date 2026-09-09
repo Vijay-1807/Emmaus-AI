@@ -318,7 +318,7 @@ Rules:
 - Operations execute in sequence on the DataFrame.
 - For row counts per group use group_by with a count metric, e.g. {{"row_count": "count"}}.
 - compute exprs may use Series string/datetime accessors, e.g. df['Company'].str.startswith('S'), df['Date'].dt.year.
-- Numbers stored as text (e.g. a Percentage column of "77.0%") must be cleaned first with a compute step, e.g. {"type": "compute", "name": "pct_num", "expr": "df['Percentage'].str.rstrip('%').astype(float)"}, then chart the cleaned column.
+- Numbers stored as text (e.g. a Percentage column of "77.0%") must be cleaned first with a compute step, e.g. {{"type": "compute", "name": "pct_num", "expr": "df['Percentage'].str.rstrip('%').astype(float)"}}, then chart the cleaned column.
 - Final result should answer the question.
 - Output JSON: {{"steps": [...], "chart_type": "bar|line|pie|area|scatter|none", "chart_title": "...", "x_label": "...", "y_label": "..."}}
 - If the question cannot be answered with these operations, include an "explanation" field instead of "steps".

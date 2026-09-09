@@ -18,6 +18,7 @@ from app.data.analysis import (
     _execute_plan,
     build_chart_spec,
     result_to_text,
+    PLAN_PROMPT,
 )
 
 
@@ -160,3 +161,11 @@ def test_chart_spec_mixed_frame_uses_text_labels():
 def test_chart_spec_skips_text_columns():
     df = pd.DataFrame({"Metric": ["A", "B"], "note": ["x", "y"]})
     assert build_chart_spec(df, "bar", "t") is None
+
+
+def test_plan_prompt_formats_without_key_error():
+    # Every literal {...} in the template must be doubled, or .format()
+    # blows up at runtime (production KeyError: '"type"').
+    rendered = PLAN_PROMPT.format(schema="s", sample="r", question="q")
+    assert "77.0%" in rendered
+    assert "{schema}" not in rendered

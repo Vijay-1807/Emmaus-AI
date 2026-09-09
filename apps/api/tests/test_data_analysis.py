@@ -144,3 +144,19 @@ def test_compute_still_blocks_dangerous_calls():
     ):
         with pytest.raises(ValueError):
             _apply_compute(df, ComputeStep(name="bad", expr=expr))
+
+
+def test_chart_spec_mixed_frame_uses_text_labels():
+    # Production case: Metric text column + cleaned numeric column.
+    df = pd.DataFrame(
+        {"Metric": ["A", "B"], "pct_num": [77.0, 100.0]},
+    )
+    chart = build_chart_spec(df, "bar", "Performance %")
+    assert chart is not None
+    assert chart["labels"] == ["A", "B"]
+    assert chart["series"][0]["values"] == [77.0, 100.0]
+
+
+def test_chart_spec_skips_text_columns():
+    df = pd.DataFrame({"Metric": ["A", "B"], "note": ["x", "y"]})
+    assert build_chart_spec(df, "bar", "t") is None

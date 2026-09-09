@@ -318,6 +318,7 @@ Rules:
 - Operations execute in sequence on the DataFrame.
 - For row counts per group use group_by with a count metric, e.g. {{"row_count": "count"}}.
 - compute exprs may use Series string/datetime accessors, e.g. df['Company'].str.startswith('S'), df['Date'].dt.year.
+- Numbers stored as text (e.g. a Percentage column of "77.0%") must be cleaned first with a compute step, e.g. {"type": "compute", "name": "pct_num", "expr": "df['Percentage'].str.rstrip('%').astype(float)"}, then chart the cleaned column.
 - Final result should answer the question.
 - Output JSON: {{"steps": [...], "chart_type": "bar|line|pie|area|scatter|none", "chart_title": "...", "x_label": "...", "y_label": "..."}}
 - If the question cannot be answered with these operations, include an "explanation" field instead of "steps".
@@ -498,6 +499,49 @@ def result_to_text(result: pd.DataFrame | pd.Series | Any) -> str:
     return str(result)
 
 
+def _numeric_values(values: Any) -> list[float] | None:
+    """Coerce a column to numbers; None when it holds no numeric data.
+
+    Real-world CSVs mix text label columns with numeric ones - the chart
+    builder must plot the numbers instead of crashing on the text.
+    """
+    out: list[float] = []
+    seen_number = False
+    for v in values:
+        if v is None:
+            out.append(0.0)
+            continue
+        try:
+            if isinstance(v, float) and pd.isna(v):
+                out.append(0.0)
+                continue
+        except (TypeError, ValueError):
+            return None
+        try:
+            out.append(float(v))
+            seen_number = True
+        except (TypeError, ValueError):
+            return None
+    return out if seen_number else None
+
+
+def _is_text_column(values: Any) -> bool:
+    """True when every present value is a string (a label column)."""
+    found = False
+    for v in values:
+        if v is None:
+            continue
+        try:
+            if isinstance(v, float) and pd.isna(v):
+                continue
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(v, str):
+            return False
+        found = True
+    return found
+
+
 def build_chart_spec(
     result: pd.DataFrame | pd.Series | Any,
     chart_type: ChartType,
@@ -510,11 +554,22 @@ def build_chart_spec(
     labels: list[str] = []
     series: list[dict[str, Any]] = []
     if isinstance(result, pd.DataFrame):
-        labels = [str(v) for v in result.index.tolist()]
-        for column in result.columns[:6]:
-            series.append(
-                {"name": str(column), "values": [float(v) if pd.notna(v) else 0 for v in result[column]]}
-            )
+        frame_columns = list(result.columns[:6])
+        if isinstance(result.index, pd.RangeIndex):
+            # Default integer index carries no meaning: prefer a text
+            # column (e.g. Metric names) for labels when one exists.
+            label_cols = [c for c in frame_columns if _is_text_column(result[c])]
+            if label_cols:
+                labels = [str(v) for v in result[label_cols[0]].tolist()]
+                frame_columns = [c for c in frame_columns if c != label_cols[0]]
+            else:
+                labels = [str(v) for v in result.index.tolist()]
+        else:
+            labels = [str(v) for v in result.index.tolist()]
+        for column in frame_columns:
+            nums = _numeric_values(result[column])
+            if nums is not None:
+                series.append({"name": str(column), "values": nums})
     elif isinstance(result, pd.Series):
         labels = [str(v) for v in result.index.tolist()]
         series = [{"name": str(result.name or "value"), "values": [float(v) if pd.notna(v) else 0 for v in result]}]
